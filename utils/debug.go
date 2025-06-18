@@ -14,4 +14,8 @@ func init() {
 	} else {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
+
+	logrus.SetFormatter(&logrus.TextFormatter{
+		ForceColors: true,
+	})
 }
