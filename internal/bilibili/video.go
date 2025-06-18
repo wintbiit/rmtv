@@ -1,7 +1,10 @@
 package bilibili
 
 import (
+	"regexp"
+
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 )
 
 type SearchVideoResponse struct {
@@ -66,6 +69,12 @@ type SearchResult struct {
 	RankScore    int         `json:"rank_score"`
 }
 
+var titleRegex = regexp.MustCompile(`<em[^>]*>(.*?)</em>`)
+
+func (s *SearchResult) postprocess() {
+	s.Title = titleRegex.ReplaceAllString(s.Title, `**$1**`)
+}
+
 func (c *Client) SearchVideos(keyword string) ([]SearchResult, error) {
 	resp, err := c.client.R().
 		SetQueryParam("search_type", SearchResultTypeVideo).
@@ -86,5 +95,9 @@ func (c *Client) SearchVideos(keyword string) ([]SearchResult, error) {
 		return nil, errors.Errorf("search videos failed: %d %s", searchResp.Code, searchResp.Message)
 	}
 
-	return searchResp.Data.Result, nil
+	return lo.Map(searchResp.Data.Result, func(item SearchResult, _ int) SearchResult {
+		i := item
+		i.postprocess()
+		return i
+	}), nil
 }
