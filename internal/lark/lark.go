@@ -3,6 +3,8 @@ package lark
 import (
 	"context"
 	"encoding/json"
+	"time"
+
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
@@ -10,7 +12,6 @@ import (
 	"resty.dev/v3"
 	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/utils"
-	"time"
 )
 
 type Config struct {

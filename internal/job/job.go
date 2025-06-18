@@ -2,13 +2,15 @@ package job
 
 import (
 	"context"
+	"os"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
-	"os"
+
 	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/internal/lark"
-	"time"
 )
 
 type TvJob struct {
@@ -16,10 +18,11 @@ type TvJob struct {
 
 	bc *bilibili.Client
 
-	scanInterval time.Duration
-	larkClient   *lark.Client
-	dbPath       string
-	db           *bbolt.DB
+	scanInterval    time.Duration
+	larkClient      *lark.Client
+	dbPath          string
+	db              *bbolt.DB
+	maxCountPerPush int
 }
 
 type TvJobOption func(*TvJob)
@@ -54,6 +57,15 @@ func WithDBPath(path string) TvJobOption {
 	}
 }
 
+func WithMaxCountPerPush(count int) TvJobOption {
+	return func(j *TvJob) {
+		if count <= 0 {
+			logrus.Fatal("maxCountPerPush must be greater than 0")
+		}
+		j.maxCountPerPush = count
+	}
+}
+
 func NewTvJob(keywords []string, options ...TvJobOption) *TvJob {
 	if len(keywords) == 0 {
 		logrus.Fatal("keywords is empty")
@@ -77,7 +89,7 @@ func (j *TvJob) Run(ctx context.Context) error {
 	ticker := time.NewTicker(j.scanInterval)
 	defer ticker.Stop()
 	var err error
-	j.db, err = bbolt.Open(j.dbPath, 0600, nil)
+	j.db, err = bbolt.Open(j.dbPath, 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to open database at %s", j.dbPath)
 	}

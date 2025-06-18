@@ -1,15 +1,19 @@
 package bilibili
 
 import (
-	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
+
+	"github.com/sirupsen/logrus"
+
 	"resty.dev/v3"
 	"scutbot.cn/web/rmtv/utils"
 )
 
-const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-const Referer = "https://www.bilibili.com/"
+const (
+	UA      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+	Referer = "https://www.bilibili.com/"
+)
 
 type Client struct {
 	client *resty.Client

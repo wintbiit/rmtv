@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"github.com/sirupsen/logrus"
 	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
 var Debug = os.Getenv("DEBUG") == "true"

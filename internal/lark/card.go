@@ -3,14 +3,15 @@ package lark
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
 	"scutbot.cn/web/rmtv/internal/bilibili"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type ChatContent struct {
@@ -26,8 +27,10 @@ type ChatCard struct {
 	} `json:"data"`
 }
 
-const templateId = "AAqdTMBQENhuz"
-const imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
+const (
+	templateId       = "AAqdTMBQENhuz"
+	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
+)
 
 func (c *Client) buildMessageCard(ctx context.Context, videos []bilibili.SearchResult) (*ChatCard, error) {
 	images := parallel.Map(videos, func(item bilibili.SearchResult, i int) string {

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"os"
+
 	"scutbot.cn/web/rmtv/internal/job"
-	"strings"
 )
 
 func main() {

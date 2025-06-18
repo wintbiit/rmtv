@@ -30,8 +30,10 @@ type CostTime struct {
 	MainHandler         string `json:"main_handler"`
 }
 
-const SearchResultTypeVideo = "video"
-const SearchResultTypeArticle = "article"
+const (
+	SearchResultTypeVideo   = "video"
+	SearchResultTypeArticle = "article"
+)
 
 type SearchResult struct {
 	Type         string      `json:"type"`

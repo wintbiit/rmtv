@@ -2,17 +2,20 @@ package job
 
 import (
 	"context"
+	"slices"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
 	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/utils"
-	"slices"
 )
 
-var bucketName = []byte("rmtv")
-var timeCursorKey = []byte("time_cursor")
+var (
+	bucketName    = []byte("rmtv")
+	timeCursorKey = []byte("time_cursor")
+)
 
 func (j *TvJob) scan(ctx context.Context) error {
 	logrus.Debug("Starting TV scan with keywords: ", j.KeywordList)
@@ -52,10 +55,6 @@ func (j *TvJob) scan(ctx context.Context) error {
 		results := lo.Filter(results, func(item bilibili.SearchResult, _ int) bool {
 			return item.PubDate > timeCursor
 		})
-		if len(results) == 0 {
-			logrus.Debug("No new videos found since last scan")
-			return nil
-		}
 		return j.onNewVideos(ctx, results)
 	})
 }

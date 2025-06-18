@@ -2,9 +2,10 @@ package lark
 
 import (
 	"context"
+	"strings"
+
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
-	"strings"
 )
 
 func (c *Client) uploadImage(ctx context.Context, url string) (string, error) {
