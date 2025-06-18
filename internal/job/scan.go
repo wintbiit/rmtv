@@ -33,6 +33,9 @@ func (j *TvJob) scan(ctx context.Context) error {
 	results = lo.UniqBy(results, func(item bilibili.SearchResult) string {
 		return item.BVID
 	})
+	slices.SortFunc(results, func(a, b bilibili.SearchResult) int {
+		return b.PubDate - a.PubDate
+	})
 
 	if len(results) == 0 {
 		return nil
@@ -43,18 +46,22 @@ func (j *TvJob) scan(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		defer func() {
-			latestTimeCursor := results[0].PubDate
-
-			if err := bucket.Put(timeCursorKey, utils.MarshalInt(latestTimeCursor)); err != nil {
-				logrus.Error("Failed to save latest time cursor: ", err)
-			}
-		}()
 
 		timeCursor := utils.UnmarshalInt(bucket.Get(timeCursorKey))
 		results := lo.Filter(results, func(item bilibili.SearchResult, _ int) bool {
 			return item.PubDate > timeCursor
 		})
-		return j.onNewVideos(ctx, results)
+		if err = j.onNewVideos(ctx, results); err != nil {
+			return errors.Wrapf(err, "failed to save new videos")
+		}
+
+		latestTimeCursor := results[0].PubDate
+
+		if err = bucket.Put(timeCursorKey, utils.MarshalInt(latestTimeCursor)); err != nil {
+			return errors.Wrapf(err, "failed to update time cursor")
+		}
+
+		logrus.Infof("Updated time cursor to %d", latestTimeCursor)
+		return nil
 	})
 }
