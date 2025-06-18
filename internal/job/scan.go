@@ -38,6 +38,7 @@ func (j *TvJob) scan(ctx context.Context) error {
 	})
 
 	if len(results) == 0 {
+		logrus.Debug("No new videos found")
 		return nil
 	}
 
@@ -51,6 +52,11 @@ func (j *TvJob) scan(ctx context.Context) error {
 		results := lo.Filter(results, func(item bilibili.SearchResult, _ int) bool {
 			return item.PubDate > timeCursor
 		})
+		if len(results) == 0 {
+			logrus.Debug("No new videos found")
+			return nil
+		}
+
 		if err = j.onNewVideos(ctx, results); err != nil {
 			return errors.Wrapf(err, "failed to save new videos")
 		}

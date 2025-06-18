@@ -9,11 +9,6 @@ import (
 )
 
 func (j *TvJob) onNewVideos(ctx context.Context, video []bilibili.SearchResult) error {
-	if len(video) == 0 {
-		logrus.Debug("No new videos found")
-		return nil
-	}
-
 	logrus.Infof("Incoming %d new videos: %v", len(video), lo.Map(video, func(item bilibili.SearchResult, _ int) string {
 		return item.BVID
 	}))
