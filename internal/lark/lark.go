@@ -15,21 +15,18 @@ import (
 )
 
 type Config struct {
-	AppId     string
-	AppSecret string
+	AppId           string
+	AppSecret       string
+	WebhookFilePath string
 }
 
 type Client struct {
-	webhooks   []string
-	client     *resty.Client
-	larkClient *lark.Client
+	client          *resty.Client
+	larkClient      *lark.Client
+	webhookProvider WebhookProvider
 }
 
-func NewClient(webhooks []string, config *Config) *Client {
-	if len(webhooks) == 0 {
-		return nil
-	}
-
+func NewClient(config *Config) *Client {
 	c := resty.New().
 		SetRetryCount(3).
 		SetRetryWaitTime(2 * time.Second).
@@ -39,45 +36,28 @@ func NewClient(webhooks []string, config *Config) *Client {
 
 	larkClient := lark.NewClient(config.AppId, config.AppSecret, lark.WithHttpClient(c.Client()))
 
+	var provider WebhookProvider
+	if config.WebhookFilePath != "" {
+		provider = NewFileWebhookProvider(config.WebhookFilePath)
+	}
+
 	client := &Client{
-		client:     c,
-		webhooks:   webhooks,
-		larkClient: larkClient,
+		client:          c,
+		larkClient:      larkClient,
+		webhookProvider: provider,
 	}
 
 	return client
 }
 
 func (c *Client) PushMessage(ctx context.Context, videos []bilibili.SearchResult) error {
-	if len(c.webhooks) == 0 {
-		return nil
-	}
-
 	message, err := c.buildMessageCard(ctx, videos)
 	if err != nil {
 		return err
 	}
 
-	for _, webhook := range c.webhooks {
-		resp, err := c.client.R().
-			SetContext(ctx).
-			SetHeader("Content-Type", "application/json").
-			SetBody(ChatContent{
-				MsgType: larkim.MsgTypeInteractive,
-				Card:    message,
-			}).
-			Post(webhook)
-		if err != nil {
-			return err
-		}
-
-		if !resp.IsSuccess() {
-			return errors.Wrapf(err, "lark push message failed: %s", resp.String())
-		}
-	}
-
 	messageData, _ := json.Marshal(message)
-	return c.ForeachChat(ctx, func(chat *larkim.ListChat) {
+	if err = c.ForeachChat(ctx, func(chat *larkim.ListChat) {
 		req := larkim.NewCreateMessageReqBuilder().
 			ReceiveIdType(larkim.ReceiveIdTypeChatId).
 			Body(larkim.NewCreateMessageReqBodyBuilder().
@@ -97,5 +77,39 @@ func (c *Client) PushMessage(ctx context.Context, videos []bilibili.SearchResult
 			logrus.Error(errors.Wrap(resp, "failed to create message"))
 			return
 		}
-	})
+
+		logrus.Infof("successfully pushed message to chat: %s(%s)", *chat.Name, *chat.ChatId)
+	}); err != nil {
+		logrus.Errorf("failed to push message to chat: %v", err)
+	}
+
+	if c.webhookProvider != nil {
+		webhooks, err := c.webhookProvider.GetWebhooks()
+		if err != nil {
+			return errors.Wrap(err, "failed to get webhooks")
+		}
+
+		for _, webhook := range webhooks {
+			resp, err := c.client.R().
+				SetContext(ctx).
+				SetHeader("Content-Type", "application/json").
+				SetBody(ChatContent{
+					MsgType: larkim.MsgTypeInteractive,
+					Card:    message,
+				}).
+				Post(webhook)
+			if err != nil {
+				logrus.Errorf("failed to post webhook: %v", err)
+				continue
+			}
+
+			if !resp.IsSuccess() {
+				logrus.Error(errors.Wrapf(err, "lark push message failed: %s", resp.String()))
+			}
+
+			logrus.Infof("successfully pushed message to webhook: %s", webhook)
+		}
+	}
+
+	return nil
 }

@@ -3,8 +3,10 @@ package bilibili
 import (
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/ratelimit"
 
 	"resty.dev/v3"
 	"scutbot.cn/web/rmtv/utils"
@@ -44,7 +46,15 @@ func NewClient() *Client {
 		SetHeader("User-Agent", UA).
 		SetHeader("Referer", Referer).
 		SetDebug(utils.Debug).
-		SetCookies(cookies)
+		SetCookies(cookies).
+		AddRequestMiddleware(limiter(ratelimit.New(3, ratelimit.Per(time.Minute))))
 
 	return &Client{c}
+}
+
+func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
+	return func(client *resty.Client, req *resty.Request) error {
+		limiter.Take()
+		return nil
+	}
 }

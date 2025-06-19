@@ -8,7 +8,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
-
 	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/internal/lark"
 )
@@ -27,7 +26,7 @@ type TvJob struct {
 
 type TvJobOption func(*TvJob)
 
-func WithLarkWebhooks(webhooks []string) TvJobOption {
+func WithLark() TvJobOption {
 	return func(j *TvJob) {
 		larkClientId, ok := os.LookupEnv("LARK_APP_ID")
 		if !ok {
@@ -37,10 +36,15 @@ func WithLarkWebhooks(webhooks []string) TvJobOption {
 		if !ok {
 			logrus.Fatal("LARK_APP_SECRET is not set")
 		}
+		webhookFilePath := "webhooks.txt"
+		if wbpOverride, ok := os.LookupEnv("LARK_WEBHOOK_FILE_PATH"); ok {
+			webhookFilePath = wbpOverride
+		}
 
-		j.larkClient = lark.NewClient(webhooks, &lark.Config{
-			AppId:     larkClientId,
-			AppSecret: larkClientSecret,
+		j.larkClient = lark.NewClient(&lark.Config{
+			AppId:           larkClientId,
+			AppSecret:       larkClientSecret,
+			WebhookFilePath: webhookFilePath,
 		})
 	}
 }
@@ -83,6 +87,13 @@ func NewTvJob(keywords []string, options ...TvJobOption) *TvJob {
 	}
 
 	return job
+}
+
+func (j *TvJob) With(options ...TvJobOption) *TvJob {
+	for _, option := range options {
+		option(j)
+	}
+	return j
 }
 
 func (j *TvJob) Run(ctx context.Context) error {

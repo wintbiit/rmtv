@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -18,17 +19,18 @@ func main() {
 		logrus.Warnf("KEYWORDS environment variable not set. Using default keywords: %s", keywords)
 	}
 
-	webhooks, ok := os.LookupEnv("LARK_WEBHOOKS")
-	if !ok {
-		logrus.Warn("LARK_WEBHOOKS environment variable not set. Webhook is disabled.")
-	}
-
 	j := job.NewTvJob(
 		strings.Split(keywords, ","),
-		job.WithLarkWebhooks(strings.Split(webhooks, ",")),
+		job.WithLark(),
 	)
 
+	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {
+		if count, err := strconv.Atoi(maxCountPerPush); err == nil && count > 0 {
+			j = j.With(job.WithMaxCountPerPush(count))
+		}
+	}
+
 	if err := j.Run(context.Background()); err != nil {
-		panic(errors.Wrap(err, "failed to run job"))
+		logrus.Error(errors.Wrap(err, "failed to run job"))
 	}
 }

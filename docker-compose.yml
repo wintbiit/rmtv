@@ -1,0 +1,11 @@
+services:
+  rmtv:
+    image: ghcr.io/wintbiit/rmtv:latest
+    restart: always
+    volumes:
+      - ./data/rmtv:/app/data
+      - ./webhooks.txt:/app/webhooks.txt
+    environment:
+      COOKIES: "<bilibili_cookies>"
+      LARK_APP_ID: "<your_app_id>"
+      LARK_APP_SECRET: "<your_app_secret>"

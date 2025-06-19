@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
 	"scutbot.cn/web/rmtv/internal/bilibili"
@@ -20,15 +21,14 @@ var (
 func (j *TvJob) scan(ctx context.Context) error {
 	logrus.Debug("Starting TV scan with keywords: ", j.KeywordList)
 
-	var results []bilibili.SearchResult
-	for _, keyword := range j.KeywordList {
-		result, err := j.bc.SearchVideos(keyword)
+	results := lo.Flatten(parallel.Map(j.KeywordList, func(item string, index int) []bilibili.SearchResult {
+		result, err := j.bc.SearchVideos(item)
 		if err != nil {
-			return errors.Wrapf(err, "failed to search videos with keyword: %s", keyword)
+			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
+			return nil
 		}
-
-		results = slices.Concat(results, result)
-	}
+		return result
+	}))
 
 	results = lo.UniqBy(results, func(item bilibili.SearchResult) string {
 		return item.BVID
