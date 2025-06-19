@@ -2,29 +2,17 @@ package lark
 
 import (
 	"context"
-	"strings"
+	"io"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
 )
 
-func (c *Client) uploadImage(ctx context.Context, url string) (string, error) {
-	if !strings.HasPrefix(url, "http") {
-		url = "https:" + url
-	}
-	image, err := c.client.R().Get(url)
-	if err != nil {
-		return "", errors.Wrap(err, "lark uploadImage")
-	}
-
-	if !image.IsSuccess() {
-		return "", errors.Wrapf(err, "lark uploadImage: %s", image.String())
-	}
-
+func (c *Client) uploadImage(ctx context.Context, image io.Reader) (string, error) {
 	req := larkim.NewCreateImageReqBuilder().
 		Body(larkim.NewCreateImageReqBodyBuilder().
 			ImageType(larkim.ImageTypeMessage).
-			Image(image.Body).
+			Image(image).
 			Build()).
 		Build()
 	resp, err := c.larkClient.Im.V1.Image.Create(ctx, req)

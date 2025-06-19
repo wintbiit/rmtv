@@ -3,15 +3,14 @@ package lark
 import (
 	"context"
 	"fmt"
+	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
-	"scutbot.cn/web/rmtv/internal/bilibili"
 )
 
 type ChatContent struct {
@@ -32,9 +31,38 @@ const (
 	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
 )
 
-func (c *Client) buildMessageCard(ctx context.Context, videos []bilibili.SearchResult) (*ChatCard, error) {
-	images := parallel.Map(videos, func(item bilibili.SearchResult, i int) string {
-		imageKey, err := c.uploadImage(ctx, item.Pic)
+type MessageEntry interface {
+	GetType() string
+	GetTypeColor() string
+	GetId() string
+	GetPic() io.Reader
+	GetTitle() string
+	GetDesc() string
+	GetTags() []string
+	GetPubDate() time.Time
+	GetAuthor() string
+	GetAuthorUrl() string
+	GetUrl() string
+	GetAdditional() string
+}
+
+func (c *Client) buildMessageCard(ctx context.Context, videos []MessageEntry) (*ChatCard, error) {
+	images := parallel.Map(videos, func(item MessageEntry, i int) string {
+		reader := item.GetPic()
+		if reader == nil {
+			return imageKeyFallback
+		}
+
+		defer func() {
+			if closer, ok := reader.(io.Closer); ok {
+				err := closer.Close()
+				if err != nil {
+					logrus.Error(errors.Wrap(err, "failed to close image reader"))
+				}
+			}
+		}()
+
+		imageKey, err := c.uploadImage(ctx, item.GetPic())
 		if err != nil {
 			logrus.Error(errors.Wrap(err, "lark uploadImage"))
 			return imageKeyFallback
@@ -48,23 +76,27 @@ func (c *Client) buildMessageCard(ctx context.Context, videos []bilibili.SearchR
 	content.Type = "template"
 	content.Data.TemplateVariable = map[string]interface{}{
 		"count": strconv.Itoa(len(videos)),
-		"object_img": lo.Map(videos, func(item bilibili.SearchResult, i int) map[string]interface{} {
+		"object_img": lo.Map(videos, func(item MessageEntry, i int) map[string]interface{} {
 			return map[string]interface{}{
 				"img": map[string]interface{}{
 					"img_key": images[i],
 				},
-				"title": item.Title + strings.Join(lo.Map(strings.Split(item.Tag, ","), func(item string, index int) string {
-					return fmt.Sprintf("<text_tag color='blue'>%s</text_tag> ", item)
-				}), ""),
-				"senddate": time.Unix(int64(item.PubDate), 0).Format(time.DateTime),
-				"duration": item.Duration,
+				"title": fmt.Sprintf("<text_tag color='%s'>%s</text_tag> ", item.GetTypeColor(), item.GetType()) +
+					item.GetTitle() +
+					lo.Reduce(item.GetTags(), func(acc, tag string, _ int) string {
+						return acc + "<text_tag color='blue'>" + tag + "</text_tag> "
+					}, ""),
+				"titleraw": item.GetTitle(),
+				"senddate": time.Unix(item.GetPubDate().Unix(), 0).Format(time.DateTime),
 				"url": map[string]string{
-					"url": fmt.Sprintf("https://b23.tv/%s", item.BVID),
+					"url": item.GetUrl(),
 				},
-				"author_url":  fmt.Sprintf("https://space.bilibili.com/%d", item.Mid),
-				"author":      item.Author,
-				"description": item.Description,
-				"titleraw":    item.Title,
+				"author_url":  item.GetAuthorUrl(),
+				"author":      item.GetAuthor(),
+				"description": item.GetDesc(),
+				"additional":  item.GetAdditional(),
+				"type":        item.GetType(),
+				"color":       item.GetTypeColor(),
 			}
 		}),
 	}

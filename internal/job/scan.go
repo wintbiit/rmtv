@@ -9,7 +9,7 @@ import (
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
-	"scutbot.cn/web/rmtv/internal/bilibili"
+	"scutbot.cn/web/rmtv/internal/lark"
 	"scutbot.cn/web/rmtv/utils"
 )
 
@@ -18,23 +18,25 @@ var (
 	timeCursorKey = []byte("time_cursor")
 )
 
-func (j *TvJob) scan(ctx context.Context) error {
-	logrus.Debug("Starting TV scan with keywords: ", j.KeywordList)
+type MessageProvider interface {
+	Collect() ([]lark.MessageEntry, error)
+}
 
-	results := lo.Flatten(parallel.Map(j.KeywordList, func(item string, index int) []bilibili.SearchResult {
-		result, err := j.bc.SearchVideos(item)
+func (j *TvJob) scan(ctx context.Context) error {
+	logrus.Debug("Starting TV scan with providers: %+v", j.providers)
+
+	results := lo.Flatten(parallel.Map(j.providers, func(item MessageProvider, index int) []lark.MessageEntry {
+		messages, err := item.Collect()
 		if err != nil {
-			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
+			logrus.Errorf("Failed to collect results from provider %v", err)
 			return nil
 		}
-		return result
+
+		return messages
 	}))
 
-	results = lo.UniqBy(results, func(item bilibili.SearchResult) string {
-		return item.BVID
-	})
-	slices.SortFunc(results, func(a, b bilibili.SearchResult) int {
-		return b.PubDate - a.PubDate
+	slices.SortFunc(results, func(a, b lark.MessageEntry) int {
+		return int(b.GetPubDate().Unix() - a.GetPubDate().Unix())
 	})
 
 	if len(results) == 0 {
@@ -48,22 +50,22 @@ func (j *TvJob) scan(ctx context.Context) error {
 			return err
 		}
 
-		timeCursor := utils.UnmarshalInt(bucket.Get(timeCursorKey))
-		results := lo.Filter(results, func(item bilibili.SearchResult, _ int) bool {
-			return item.PubDate > timeCursor
+		timeCursor := utils.UnmarshalInt64(bucket.Get(timeCursorKey))
+		results := lo.Filter(results, func(item lark.MessageEntry, _ int) bool {
+			return item.GetPubDate().Unix() > timeCursor
 		})
 		if len(results) == 0 {
-			logrus.Debug("No new videos found")
+			logrus.Debug("No new messages found")
 			return nil
 		}
 
-		if err = j.onNewVideos(ctx, results); err != nil {
+		if err = j.onNewMessage(ctx, results); err != nil {
 			return errors.Wrapf(err, "failed to save new videos")
 		}
 
-		latestTimeCursor := results[0].PubDate
+		latestTimeCursor := results[0].GetPubDate().Unix()
 
-		if err = bucket.Put(timeCursorKey, utils.MarshalInt(latestTimeCursor)); err != nil {
+		if err = bucket.Put(timeCursorKey, utils.MarshalInt64(latestTimeCursor)); err != nil {
 			return errors.Wrapf(err, "failed to update time cursor")
 		}
 

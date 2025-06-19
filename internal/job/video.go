@@ -3,23 +3,24 @@ package job
 import (
 	"context"
 
+	"scutbot.cn/web/rmtv/internal/lark"
+
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"scutbot.cn/web/rmtv/internal/bilibili"
 )
 
-func (j *TvJob) onNewVideos(ctx context.Context, video []bilibili.SearchResult) error {
-	logrus.Infof("Incoming %d new videos: %v", len(video), lo.Map(video, func(item bilibili.SearchResult, _ int) string {
-		return item.BVID
+func (j *TvJob) onNewMessage(ctx context.Context, entries []lark.MessageEntry) error {
+	logrus.Infof("Incoming %d new entries: %v", len(entries), lo.Map(entries, func(item lark.MessageEntry, _ int) string {
+		return item.GetId()
 	}))
 
-	if j.maxCountPerPush > 0 && len(video) > j.maxCountPerPush {
-		video = video[:j.maxCountPerPush]
+	if j.maxCountPerPush > 0 && len(entries) > j.maxCountPerPush {
+		entries = entries[:j.maxCountPerPush]
 	}
 
 	if j.larkClient != nil {
 		logrus.Debug("Pushing new videos to Lark")
-		if err := j.larkClient.PushMessage(ctx, video); err != nil {
+		if err := j.larkClient.PushMessage(ctx, entries); err != nil {
 			logrus.Error("Failed to push message to Lark: ", err)
 		}
 	}

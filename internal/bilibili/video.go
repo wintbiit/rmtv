@@ -1,7 +1,14 @@
 package bilibili
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"regexp"
+	"strings"
+	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -67,6 +74,71 @@ type SearchResult struct {
 	RecTags      interface{} `json:"rec_tags"`
 	NewRecTags   []string    `json:"new_rec_tags"`
 	RankScore    int         `json:"rank_score"`
+}
+
+func (s *SearchResult) GetType() string {
+	return "Bilibili"
+}
+
+func (s *SearchResult) GetTypeColor() string {
+	return "carmine"
+}
+
+func (s *SearchResult) GetId() string {
+	return s.BVID
+}
+
+func (s *SearchResult) GetPic() io.Reader {
+	url := s.Pic
+	if !strings.HasPrefix(url, "http") {
+		url = "https:" + url
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		logrus.Error(errors.Wrap(err, "get search result pic: "+url))
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logrus.Error(errors.Errorf("get search result pic failed: %s, status code: %d", url, resp.StatusCode))
+		return nil
+	}
+
+	return resp.Body
+}
+
+func (s *SearchResult) GetTitle() string {
+	return s.Title
+}
+
+func (s *SearchResult) GetDesc() string {
+	return s.Description
+}
+
+func (s *SearchResult) GetTags() []string {
+	return strings.Split(s.Tag, ",")
+}
+
+func (s *SearchResult) GetPubDate() time.Time {
+	return time.Unix(int64(s.PubDate), 0)
+}
+
+func (s *SearchResult) GetAuthor() string {
+	return s.Author
+}
+
+func (s *SearchResult) GetAuthorUrl() string {
+	return fmt.Sprintf("https://space.bilibili.com/%d", s.Mid)
+}
+
+func (s *SearchResult) GetUrl() string {
+	return fmt.Sprintf("https://b23.tv/%s", s.BVID)
+}
+
+func (s *SearchResult) GetAdditional() string {
+	return fmt.Sprintf("<text_tag color='red'>⌛️ %s</text_tag>",
+		s.Duration)
 }
 
 var titleRegex = regexp.MustCompile(`<em[^>]*>(.*?)</em>`)

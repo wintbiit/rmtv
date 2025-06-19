@@ -1,41 +1,39 @@
-package bilibili
+package rmbbs
 
 import (
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
-
-	"scutbot.cn/web/rmtv/internal/lark"
-
 	"github.com/sirupsen/logrus"
 	"go.uber.org/ratelimit"
 
 	"resty.dev/v3"
+	"scutbot.cn/web/rmtv/internal/lark"
 	"scutbot.cn/web/rmtv/utils"
 )
 
 const (
 	UA      = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-	Referer = "https://www.bilibili.com/"
+	Referer = "https://bbs.robomaster.com/"
 )
 
 type Client struct {
-	client   *resty.Client
-	keywords []string
+	categories []string
+	client     *resty.Client
 }
 
 type Response[T any] struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Success bool   `json:"success"`
 	Data    T      `json:"data"`
 }
 
 func NewClient() *Client {
-	cookiesRaw, ok := os.LookupEnv("BILI_COOKIES")
+	cookiesRaw, ok := os.LookupEnv("RMBBS_COOKIES")
 	if !ok {
 		logrus.Fatalf("env variable COOKIES not set")
 	}
@@ -45,14 +43,8 @@ func NewClient() *Client {
 		logrus.Fatalf("failed to parse cookies: %v", err)
 	}
 
-	keywords := "RoboMaster,机甲大师"
-	keywordsOverride, ok := os.LookupEnv("BILI_KEYWORDS")
-	if ok {
-		keywords = keywordsOverride
-	}
-
 	c := resty.New().
-		SetBaseURL("https://api.bilibili.com/x/").
+		SetBaseURL("https://bbs.robomaster.com/developers-server/rest/").
 		SetRetryCount(3).
 		SetRetryMaxWaitTime(5*1000).
 		SetRetryWaitTime(1*1000).
@@ -62,11 +54,9 @@ func NewClient() *Client {
 		SetCookies(cookies).
 		AddRequestMiddleware(limiter(ratelimit.New(3, ratelimit.Per(time.Minute))))
 
-	logrus.Infof("Initialized Bilibili client with keywords: %s", keywords)
-
 	return &Client{
-		client:   c,
-		keywords: strings.Split(keywords, ","),
+		categories: []string{PostCategoryArticle},
+		client:     c,
 	}
 }
 
@@ -78,13 +68,13 @@ func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
 }
 
 func (c *Client) Collect() ([]lark.MessageEntry, error) {
-	results := lo.Flatten(parallel.Map(c.keywords, func(item string, index int) []lark.MessageEntry {
-		result, err := c.SearchVideos(item)
+	results := lo.Flatten(parallel.Map(c.categories, func(item string, index int) []lark.MessageEntry {
+		result, err := c.ListPosts(item)
 		if err != nil {
 			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
 			return nil
 		}
-		return lo.Map(result, func(item SearchResult, index int) lark.MessageEntry {
+		return lo.Map(result, func(item ListPostsData, index int) lark.MessageEntry {
 			return &item
 		})
 	}))

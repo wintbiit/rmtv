@@ -8,15 +8,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/bbolt"
-	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/internal/lark"
 )
 
 type TvJob struct {
-	KeywordList []string
-
-	bc *bilibili.Client
-
+	providers       []MessageProvider
 	scanInterval    time.Duration
 	larkClient      *lark.Client
 	dbPath          string
@@ -70,16 +66,17 @@ func WithMaxCountPerPush(count int) TvJobOption {
 	}
 }
 
-func NewTvJob(keywords []string, options ...TvJobOption) *TvJob {
-	if len(keywords) == 0 {
-		logrus.Fatal("keywords is empty")
+func WithProvider(p MessageProvider) TvJobOption {
+	return func(j *TvJob) {
+		j.providers = append(j.providers, p)
 	}
+}
 
+func NewTvJob(options ...TvJobOption) *TvJob {
 	job := &TvJob{
-		KeywordList:  keywords,
-		bc:           bilibili.NewClient(),
-		scanInterval: 5 * time.Minute,
-		dbPath:       "data/rmtv.db",
+		scanInterval:    5 * time.Minute,
+		dbPath:          "data/rmtv.db",
+		maxCountPerPush: 10,
 	}
 
 	for _, option := range options {

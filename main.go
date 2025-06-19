@@ -4,24 +4,20 @@ import (
 	"context"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/internal/job"
+	"scutbot.cn/web/rmtv/internal/rmbbs"
 )
 
 func main() {
-	keywords, ok := os.LookupEnv("KEYWORDS")
-	if !ok {
-		keywords = "RoboMaster,机甲大师"
-		logrus.Warnf("KEYWORDS environment variable not set. Using default keywords: %s", keywords)
-	}
-
 	j := job.NewTvJob(
-		strings.Split(keywords, ","),
 		job.WithLark(),
+		job.WithProvider(bilibili.NewClient()),
+		job.WithProvider(rmbbs.NewClient()),
 	)
 
 	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {

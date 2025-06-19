@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"resty.dev/v3"
-	"scutbot.cn/web/rmtv/internal/bilibili"
 	"scutbot.cn/web/rmtv/utils"
 )
 
@@ -50,7 +49,7 @@ func NewClient(config *Config) *Client {
 	return client
 }
 
-func (c *Client) PushMessage(ctx context.Context, videos []bilibili.SearchResult) error {
+func (c *Client) PushMessage(ctx context.Context, videos []MessageEntry) error {
 	message, err := c.buildMessageCard(ctx, videos)
 	if err != nil {
 		return err
