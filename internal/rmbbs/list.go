@@ -13,6 +13,7 @@ import (
 )
 
 const PostCategoryArticle = "ARTICLE"
+const StatePass = "PASS"
 
 type ListPostsRequest struct {
 	PageSize int `json:"pageSize"`
@@ -100,7 +101,7 @@ func (l *ListPostsData) GetTags() []string {
 }
 
 func (l *ListPostsData) GetPubDate() time.Time {
-	return l.UpdateAt
+	return l.CreateAt
 }
 
 func (l *ListPostsData) GetAuthor() string {
@@ -179,5 +180,7 @@ func (c *Client) ListPosts(category string) ([]ListPostsData, error) {
 		return nil, fmt.Errorf("failed to list posts: %d %s", response.Code, response.Message)
 	}
 
-	return response.Data.List, nil
+	return lo.Filter(response.Data.List, func(item ListPostsData, index int) bool {
+		return item.State == StatePass
+	}), nil
 }
