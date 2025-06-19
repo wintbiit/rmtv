@@ -11,6 +11,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /app/bin/rmt
 FROM alpine:3.16
 
 WORKDIR /app
+ENV TZ=Asia/Shanghai
+
+RUN apk add --no-cache ca-certificates curl tzdata
 
 COPY --from=builder /app/bin/rmtv /usr/local/bin/rmtv
 
