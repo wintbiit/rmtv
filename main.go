@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -14,10 +16,16 @@ import (
 )
 
 func main() {
+	interval := flag.Duration("interval", 10*time.Minute, "scan interval")
+	dbpath := flag.String("db", "data/rmtv.db", "database path")
+	flag.Parse()
+
 	j := job.NewTvJob(
 		job.WithLark(),
 		job.WithProvider(bilibili.NewClient()),
 		job.WithProvider(rmbbs.NewClient()),
+		job.WithScanInterval(*interval),
+		job.WithDBPath(*dbpath),
 	)
 
 	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {

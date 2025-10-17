@@ -2,8 +2,6 @@ module scutbot.cn/web/rmtv
 
 go 1.23.0
 
-toolchain go1.23.4
-
 require (
 	github.com/larksuite/oapi-sdk-go/v3 v3.4.19
 	github.com/pkg/errors v0.9.1
