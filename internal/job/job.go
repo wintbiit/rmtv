@@ -94,8 +94,6 @@ func (j *TvJob) With(options ...TvJobOption) *TvJob {
 }
 
 func (j *TvJob) Run(ctx context.Context) error {
-	ticker := time.NewTicker(j.scanInterval)
-	defer ticker.Stop()
 	var err error
 	j.db, err = bbolt.Open(j.dbPath, 0o600, nil)
 	if err != nil {
@@ -107,7 +105,7 @@ func (j *TvJob) Run(ctx context.Context) error {
 		return errors.Wrap(err, "initial scan failed")
 	}
 
-	for range ticker.C {
+	for range time.Tick(j.scanInterval) {
 		scanCtx, cancel := context.WithTimeout(ctx, j.scanInterval)
 		if err := j.scan(scanCtx); err != nil {
 			cancel()

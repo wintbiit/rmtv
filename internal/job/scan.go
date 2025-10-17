@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	bucketName    = []byte("rmtv")
-	timeCursorKey = []byte("time_cursor")
+	BucketName    = []byte("rmtv")
+	TimeCursorKey = []byte("time_cursor")
 )
 
 type MessageProvider interface {
@@ -45,12 +45,12 @@ func (j *TvJob) scan(ctx context.Context) error {
 	}
 
 	return j.db.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(bucketName)
+		bucket, err := tx.CreateBucketIfNotExists(BucketName)
 		if err != nil {
 			return err
 		}
 
-		timeCursor := utils.UnmarshalInt64(bucket.Get(timeCursorKey))
+		timeCursor := utils.UnmarshalInt64(bucket.Get(TimeCursorKey))
 		results := lo.Filter(results, func(item lark.MessageEntry, _ int) bool {
 			return item.GetPubDate().Unix() > timeCursor
 		})
@@ -65,7 +65,7 @@ func (j *TvJob) scan(ctx context.Context) error {
 
 		latestTimeCursor := results[0].GetPubDate().Unix()
 
-		if err = bucket.Put(timeCursorKey, utils.MarshalInt64(latestTimeCursor)); err != nil {
+		if err = bucket.Put(TimeCursorKey, utils.MarshalInt64(latestTimeCursor)); err != nil {
 			return errors.Wrapf(err, "failed to update time cursor")
 		}
 
