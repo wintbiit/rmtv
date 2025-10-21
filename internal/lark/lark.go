@@ -49,8 +49,31 @@ func NewClient(config *Config) *Client {
 	return client
 }
 
+func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content string) error {
+	req := larkim.NewCreateMessageReqBuilder().
+		ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().
+			ReceiveId(chatId).
+			MsgType(larkim.MsgTypeInteractive).
+			Content(content).
+			Build()).
+		Build()
+
+	resp, err := c.larkClient.Im.V1.Message.Create(ctx, req)
+	if err != nil {
+		return errors.Wrap(err, "failed to create message")
+	}
+
+	if !resp.Success() {
+		return errors.Wrap(resp, "failed to create message")
+	}
+
+	logrus.Infof("successfully pushed message to chat: %s", chatId)
+	return nil
+}
+
 func (c *Client) PushMessage(ctx context.Context, videos []MessageEntry) error {
-	message, err := c.buildMessageCard(ctx, videos)
+	message, err := c.BuildMessageCard(ctx, videos)
 	if err != nil {
 		return err
 	}

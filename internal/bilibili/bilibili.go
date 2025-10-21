@@ -8,13 +8,10 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
-
-	"scutbot.cn/web/rmtv/internal/lark"
-
 	"github.com/sirupsen/logrus"
 	"go.uber.org/ratelimit"
-
 	"resty.dev/v3"
+	"scutbot.cn/web/rmtv/internal/lark"
 	"scutbot.cn/web/rmtv/utils"
 )
 
