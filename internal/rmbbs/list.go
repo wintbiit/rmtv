@@ -12,8 +12,10 @@ import (
 	"github.com/samber/lo"
 )
 
-const PostCategoryArticle = "ARTICLE"
-const StatePass = "PASS"
+const (
+	PostCategoryArticle = "ARTICLE"
+	StatePass           = "PASS"
+)
 
 type ListPostsRequest struct {
 	PageSize int `json:"pageSize"`
