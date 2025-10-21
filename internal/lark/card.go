@@ -28,6 +28,7 @@ type ChatCard struct {
 
 const (
 	templateId       = "AAqdTMBQENhuz"
+	templateIdNoImg  = "AAqxTSf0s4wL9"
 	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
 )
 
@@ -46,8 +47,8 @@ type MessageEntry interface {
 	GetAdditional() string
 }
 
-func (c *Client) buildMessageCard(ctx context.Context, videos []MessageEntry) (*ChatCard, error) {
-	images := parallel.Map(videos, func(item MessageEntry, i int) string {
+func (c *Client) BuildMessageCard(ctx context.Context, messages []MessageEntry) (*ChatCard, error) {
+	images := parallel.Map(messages, func(item MessageEntry, i int) string {
 		reader := item.GetPic()
 		if reader == nil {
 			return imageKeyFallback
@@ -71,18 +72,25 @@ func (c *Client) buildMessageCard(ctx context.Context, videos []MessageEntry) (*
 		return imageKey
 	})
 
+	template := templateId
+	if len(lo.Filter(images, func(item string, _ int) bool {
+		return item == imageKeyFallback
+	})) > 0 {
+		template = templateIdNoImg
+	}
+
 	var content ChatCard
-	content.Data.TemplateId = templateId
+	content.Data.TemplateId = template
 	content.Type = "template"
 	content.Data.TemplateVariable = map[string]interface{}{
-		"count": strconv.Itoa(len(videos)),
-		"object_img": lo.Map(videos, func(item MessageEntry, i int) map[string]interface{} {
+		"count": strconv.Itoa(len(messages)),
+		"object_img": lo.Map(messages, func(item MessageEntry, i int) map[string]interface{} {
 			return map[string]interface{}{
 				"img": map[string]interface{}{
 					"img_key": images[i],
 				},
 				"title": fmt.Sprintf("<text_tag color='%s'>%s</text_tag> ", item.GetTypeColor(), item.GetType()) +
-					item.GetTitle() +
+					fmt.Sprintf("**%s**", item.GetTitle()) +
 					lo.Reduce(item.GetTags(), func(acc, tag string, _ int) string {
 						return acc + "<text_tag color='blue'>" + tag + "</text_tag> "
 					}, ""),
