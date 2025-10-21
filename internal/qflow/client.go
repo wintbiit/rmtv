@@ -120,7 +120,7 @@ func (m *Answer) GetAuthor() string {
 }
 
 func (m *Answer) GetAuthorUrl() string {
-	return ""
+	return "https://robomaster.com"
 }
 
 func (m *Answer) GetUrl() string {
