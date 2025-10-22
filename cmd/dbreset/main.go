@@ -6,9 +6,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/wintbiit/rmtv/internal/job"
+	"github.com/wintbiit/rmtv/utils"
 	"go.etcd.io/bbolt"
-	"scutbot.cn/web/rmtv/internal/job"
-	"scutbot.cn/web/rmtv/utils"
 )
 
 func main() {

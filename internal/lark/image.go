@@ -15,7 +15,7 @@ func (c *Client) uploadImage(ctx context.Context, image io.Reader) (string, erro
 			Image(image).
 			Build()).
 		Build()
-	resp, err := c.larkClient.Im.V1.Image.Create(ctx, req)
+	resp, err := c.client.Im.V1.Image.Create(ctx, req)
 	if err != nil {
 		return "", errors.Wrap(err, "lark uploadImage")
 	}

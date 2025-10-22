@@ -11,7 +11,7 @@ func (c *Client) ForeachChat(ctx context.Context, f func(*larkim.ListChat)) erro
 	nextPageToken := ""
 
 	for {
-		resp, err := c.larkClient.Im.Chat.List(ctx, larkim.NewListChatReqBuilder().PageSize(20).PageToken(nextPageToken).Build())
+		resp, err := c.client.Im.Chat.List(ctx, larkim.NewListChatReqBuilder().PageSize(20).PageToken(nextPageToken).Build())
 		if err != nil {
 			return errors.Wrap(err, "failed to list chats")
 		}
