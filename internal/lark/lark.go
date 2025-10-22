@@ -3,14 +3,12 @@ package lark
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"resty.dev/v3"
-	"scutbot.cn/web/rmtv/utils"
+	"github.com/wintbiit/rmtv/internal/job"
 )
 
 type Config struct {
@@ -20,30 +18,19 @@ type Config struct {
 }
 
 type Client struct {
-	client          *resty.Client
-	larkClient      *lark.Client
+	client          *lark.Client
 	webhookProvider WebhookProvider
 }
 
-func NewClient(config *Config) *Client {
-	c := resty.New().
-		SetRetryCount(3).
-		SetRetryWaitTime(2 * time.Second).
-		SetRetryMaxWaitTime(10 * time.Second).
-		SetDebug(utils.Debug).
-		SetTimeout(10 * time.Second)
-
-	larkClient := lark.NewClient(config.AppId, config.AppSecret, lark.WithHttpClient(c.Client()))
-
-	var provider WebhookProvider
-	if config.WebhookFilePath != "" {
-		provider = NewFileWebhookProvider(config.WebhookFilePath)
-	}
+func NewClient(appId, appSecret string) *Client {
+	larkClient := lark.NewClient(appId, appSecret)
 
 	client := &Client{
-		client:          c,
-		larkClient:      larkClient,
-		webhookProvider: provider,
+		client: larkClient,
+	}
+
+	if imageUploadClient == nil {
+		imageUploadClient = client
 	}
 
 	return client
@@ -59,7 +46,7 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 			Build()).
 		Build()
 
-	resp, err := c.larkClient.Im.V1.Message.Create(ctx, req)
+	resp, err := c.client.Im.V1.Message.Create(ctx, req)
 	if err != nil {
 		return errors.Wrap(err, "failed to create message")
 	}
@@ -72,8 +59,8 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 	return nil
 }
 
-func (c *Client) PushMessage(ctx context.Context, videos []MessageEntry) error {
-	message, err := c.BuildMessageCard(ctx, videos)
+func (c *Client) PushMessage(ctx context.Context, videos []job.MessageEntry) error {
+	message, err := BuildMessageCard(ctx, videos)
 	if err != nil {
 		return err
 	}
@@ -89,7 +76,7 @@ func (c *Client) PushMessage(ctx context.Context, videos []MessageEntry) error {
 				Build()).
 			Build()
 
-		resp, err := c.larkClient.Im.V1.Message.Create(ctx, req)
+		resp, err := c.client.Im.V1.Message.Create(ctx, req)
 		if err != nil {
 			logrus.Errorf("failed to create message: %v", err)
 			return
@@ -103,34 +90,6 @@ func (c *Client) PushMessage(ctx context.Context, videos []MessageEntry) error {
 		logrus.Infof("successfully pushed message to chat: %s(%s)", *chat.Name, *chat.ChatId)
 	}); err != nil {
 		logrus.Errorf("failed to push message to chat: %v", err)
-	}
-
-	if c.webhookProvider != nil {
-		webhooks, err := c.webhookProvider.GetWebhooks()
-		if err != nil {
-			return errors.Wrap(err, "failed to get webhooks")
-		}
-
-		for _, webhook := range webhooks {
-			resp, err := c.client.R().
-				SetContext(ctx).
-				SetHeader("Content-Type", "application/json").
-				SetBody(ChatContent{
-					MsgType: larkim.MsgTypeInteractive,
-					Card:    message,
-				}).
-				Post(webhook)
-			if err != nil {
-				logrus.Errorf("failed to post webhook: %v", err)
-				continue
-			}
-
-			if !resp.IsSuccess() {
-				logrus.Error(errors.Wrapf(err, "lark push message failed: %s", resp.String()))
-			}
-
-			logrus.Infof("successfully pushed message to webhook: %s", webhook)
-		}
 	}
 
 	return nil

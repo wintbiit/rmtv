@@ -8,11 +8,11 @@ import (
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
+	"github.com/wintbiit/rmtv/internal/job"
 	"go.uber.org/ratelimit"
 
+	"github.com/wintbiit/rmtv/utils"
 	"resty.dev/v3"
-	"scutbot.cn/web/rmtv/internal/lark"
-	"scutbot.cn/web/rmtv/utils"
 )
 
 const (
@@ -67,19 +67,19 @@ func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
 	}
 }
 
-func (c *Client) Collect() ([]lark.MessageEntry, error) {
-	results := lo.Flatten(parallel.Map(c.categories, func(item string, index int) []lark.MessageEntry {
+func (c *Client) Collect() ([]job.MessageEntry, error) {
+	results := lo.Flatten(parallel.Map(c.categories, func(item string, index int) []job.MessageEntry {
 		result, err := c.ListPosts(item)
 		if err != nil {
 			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
 			return nil
 		}
-		return lo.Map(result, func(item ListPostsData, index int) lark.MessageEntry {
+		return lo.Map(result, func(item ListPostsData, index int) job.MessageEntry {
 			return &item
 		})
 	}))
 
-	results = lo.UniqBy(results, func(item lark.MessageEntry) string {
+	results = lo.UniqBy(results, func(item job.MessageEntry) string {
 		return item.GetId()
 	})
 

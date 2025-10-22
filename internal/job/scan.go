@@ -8,9 +8,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
+	"github.com/wintbiit/rmtv/utils"
 	"go.etcd.io/bbolt"
-	"scutbot.cn/web/rmtv/internal/lark"
-	"scutbot.cn/web/rmtv/utils"
 )
 
 var (
@@ -19,13 +18,17 @@ var (
 )
 
 type MessageProvider interface {
-	Collect() ([]lark.MessageEntry, error)
+	Collect() ([]MessageEntry, error)
+}
+
+type MessageConsumer interface {
+	PushMessage(ctx context.Context, videos []MessageEntry) error
 }
 
 func (j *TvJob) scan(ctx context.Context) error {
 	logrus.Debug("Starting TV scan with providers: %+v", j.providers)
 
-	results := lo.Flatten(parallel.Map(j.providers, func(item MessageProvider, index int) []lark.MessageEntry {
+	results := lo.Flatten(parallel.Map(j.providers, func(item MessageProvider, index int) []MessageEntry {
 		messages, err := item.Collect()
 		if err != nil {
 			logrus.Errorf("Failed to collect results from provider %v", err)
@@ -35,7 +38,7 @@ func (j *TvJob) scan(ctx context.Context) error {
 		return messages
 	}))
 
-	slices.SortFunc(results, func(a, b lark.MessageEntry) int {
+	slices.SortFunc(results, func(a, b MessageEntry) int {
 		return int(b.GetPubDate().Unix() - a.GetPubDate().Unix())
 	})
 
@@ -51,7 +54,7 @@ func (j *TvJob) scan(ctx context.Context) error {
 		}
 
 		timeCursor := utils.UnmarshalInt64(bucket.Get(TimeCursorKey))
-		results := lo.Filter(results, func(item lark.MessageEntry, _ int) bool {
+		results := lo.Filter(results, func(item MessageEntry, _ int) bool {
 			return item.GetPubDate().Unix() > timeCursor
 		})
 		if len(results) == 0 {

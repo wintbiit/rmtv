@@ -113,7 +113,11 @@ func (s *SearchResult) GetTitle() string {
 }
 
 func (s *SearchResult) GetDesc() string {
-	return s.Description
+	if s.Description != "" {
+		return s.Description
+	} else {
+		return "-"
+	}
 }
 
 func (s *SearchResult) GetTags() []string {

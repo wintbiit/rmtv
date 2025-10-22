@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"os"
 	"strconv"
 	"strings"
@@ -10,11 +9,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"scutbot.cn/web/rmtv/internal/qflow"
+	"github.com/wintbiit/rmtv/internal/lark"
+	"github.com/wintbiit/rmtv/internal/qflow"
 
-	"scutbot.cn/web/rmtv/internal/bilibili"
-	"scutbot.cn/web/rmtv/internal/job"
-	"scutbot.cn/web/rmtv/internal/rmbbs"
+	"github.com/wintbiit/rmtv/internal/bilibili"
+	"github.com/wintbiit/rmtv/internal/job"
+	"github.com/wintbiit/rmtv/internal/rmbbs"
 )
 
 var modules = map[string]func() job.MessageProvider{
@@ -30,21 +30,46 @@ var modules = map[string]func() job.MessageProvider{
 }
 
 func main() {
-	interval := flag.Duration("interval", 10*time.Minute, "scan interval")
-	dbpath := flag.String("db", "data/rmtv.db", "database path")
-	enableModules := flag.String("modules", "bilibili,rmbbs,qflow", "modules to enable")
-	flag.Parse()
+	interval, ok := os.LookupEnv("SCAN_INTERVAL")
+	if !ok {
+		interval = "10m"
+	}
+
+	dbpath, ok := os.LookupEnv("DB_PATH")
+	if !ok {
+		dbpath = "data/rmtv.db"
+	}
+	logrus.Infof("db path: %v", dbpath)
+
+	enableModules, ok := os.LookupEnv("ENABLE_MODULES")
+	if !ok {
+		enableModules = "bilibili,rmbbs,qflow"
+	}
+	logrus.Infof("enabled modules: %v", enableModules)
+
+	scanInterval, err := time.ParseDuration(interval)
+	if err != nil {
+		logrus.Fatalf("failed to parse scan interval: %v", err)
+	}
+	logrus.Infof("scan interval: %v", scanInterval)
 
 	j := job.NewTvJob(
-		job.WithLark(),
-		job.WithScanInterval(*interval),
-		job.WithDBPath(*dbpath),
+		job.WithScanInterval(scanInterval),
+		job.WithDBPath(dbpath),
 	)
 
-	for _, module := range strings.Split(*enableModules, ",") {
+	for _, module := range strings.Split(enableModules, ",") {
 		if f, ok := modules[module]; ok {
 			j = j.With(job.WithProvider(f()))
 		}
+	}
+
+	if larkAppId, ok := os.LookupEnv("LARK_APP_ID"); ok {
+		j = j.With(job.WithConsumer(lark.NewClient(larkAppId, os.Getenv("LARK_APP_SECRET"))))
+	}
+
+	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOK_FILE"); ok {
+		j = j.With(job.WithConsumer(lark.NewWebhookClient(larkWebhooks)))
 	}
 
 	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {

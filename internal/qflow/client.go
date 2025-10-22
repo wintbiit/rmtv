@@ -11,10 +11,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"github.com/wintbiit/rmtv/internal/job"
+	"github.com/wintbiit/rmtv/utils"
 	"go.uber.org/ratelimit"
 	"resty.dev/v3"
-	"scutbot.cn/web/rmtv/internal/lark"
-	"scutbot.cn/web/rmtv/utils"
 )
 
 const (
@@ -24,6 +24,8 @@ const (
 
 type Client struct {
 	client *resty.Client
+	appId  string
+	baseId string
 }
 
 func NewClient() *Client {
@@ -35,6 +37,16 @@ func NewClient() *Client {
 	cookies, err := http.ParseCookie(cookiesRaw)
 	if err != nil {
 		logrus.Fatalf("failed to parse cookies: %v", err)
+	}
+
+	qflowAppId, ok := os.LookupEnv("QFLOW_APP_ID")
+	if !ok {
+		logrus.Fatalf("env variable QFLOW_APP_ID not set")
+	}
+
+	qflowBaseId, ok := os.LookupEnv("QFLOW_BASE_ID")
+	if !ok {
+		logrus.Fatalf("env variable QFLOW_BASE_ID not set")
 	}
 
 	c := resty.New().
@@ -52,6 +64,8 @@ func NewClient() *Client {
 
 	return &Client{
 		client: c,
+		appId:  qflowAppId,
+		baseId: qflowBaseId,
 	}
 }
 
@@ -73,6 +87,7 @@ type Answer struct {
 	Answer      string    // 回答
 	CreatedAt   time.Time // 申请时间
 	UpdatedAt   time.Time // 更新时间
+	URL         string
 }
 
 func (m *Answer) GetType() string {
@@ -124,18 +139,19 @@ func (m *Answer) GetAuthorUrl() string {
 }
 
 func (m *Answer) GetUrl() string {
-	return fmt.Sprintf("https://qingflow.com/appView/8n3ukbsnb001/shareView/8n3ukcuvb002?applyId=%s", m.ID)
+	return m.URL
 }
 
 func (m *Answer) GetAdditional() string {
 	return ""
 }
 
-func (c *Client) Collect() ([]lark.MessageEntry, error) {
+func (c *Client) Collect() ([]job.MessageEntry, error) {
 	resp, err := c.client.R().
 		SetBody(`{"filter":{"pageSize":50,"pageNum":1,"type":8,"sorts":[{"queId":3,"queType":4,"isAscend":false}],"queries":[],"queryKey":null}}`).
 		SetContentType("application/json").
-		Post("https://qingflow.com/api/view/8n3ukcuvb002/apply/filter")
+		SetPathParam("id", c.baseId).
+		Post("https://qingflow.com/api/view/{id}/apply/filter")
 	if err != nil {
 		return nil, err
 	}
@@ -149,28 +165,29 @@ func (c *Client) Collect() ([]lark.MessageEntry, error) {
 		return nil, fmt.Errorf("failed to collect qflow: %s", resp.String())
 	}
 
-	answers := make([]lark.MessageEntry, len(result.Get("data.list").Array()))
+	answers := make([]job.MessageEntry, len(result.Get("data.list").Array()))
 	for i, r := range result.Get("data.list").Array() {
-		createdAt, err := time.Parse(time.DateTime, r.Get("answers.#(queId==2).values.0.value").String())
+		createdAt, err := time.Parse(time.DateTime, r.Get(`answers.#(queTitle%"*申请时间*").values.0.value`).String())
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse created at: %s", r.Get("answers.#(queId==2).values.0.value").String())
+			return nil, errors.Wrapf(err, "failed to parse created at: %s", r.String())
 		}
-		updatedAt, err := time.Parse(time.DateTime, r.Get("answers.#(queId==3).values.0.value").String())
+		updatedAt, err := time.Parse(time.DateTime, r.Get(`answers.#(queTitle%"*更新时间*").values.0.value`).String())
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse updated at: %s", r.Get("answers.#(queId==3).values.0.value").String())
+			return nil, errors.Wrapf(err, "failed to parse updated at: %s", r.String())
 		}
 
 		answers[i] = &Answer{
 			ID:          r.Get("applyId").String(),
-			Status:      r.Get("answers.#(queId==4).values.0.value").String(),
-			University:  r.Get("answers.#(queId==286908413).values.0.value").String(),
-			Team:        r.Get("answers.#(queId==286908414).values.0.value").String(),
-			Competition: r.Get("answers.#(queId==286908418).values.0.value").String(),
-			Source:      r.Get("answers.#(queId==286908419).values.0.value").String(),
-			Question:    r.Get("answers.#(queId==286908421).values.0.value").String(),
-			Answer:      r.Get("answers.#(queId==286908425).values.0.value").String(),
+			Status:      r.Get(`answers.#(queTitle%"*状态*").values.0.value`).String(),
+			University:  r.Get(`answers.#(queTitle%"*University*").values.0.value`).String(),
+			Team:        r.Get(`answers.#(queTitle%"*Team*").values.0.value`).String(),
+			Competition: r.Get(`answers.#(queTitle%"*Competition*").values.0.value`).String(),
+			Source:      r.Get(`answers.#(queTitle%"*Source*").values.0.value`).String(),
+			Question:    r.Get(`answers.#(queTitle%"*问题*").values.0.value`).String(),
+			Answer:      r.Get(`answers.#(queTitle%"*Answer*").values.0.value`).String(),
 			CreatedAt:   createdAt,
 			UpdatedAt:   updatedAt,
+			URL:         fmt.Sprintf("https://qingflow.com/appView/%s/shareView/%s?applyId=%s", c.appId, c.baseId, r.Get("applyId").String()),
 		}
 	}
 

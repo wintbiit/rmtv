@@ -7,7 +7,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/sirupsen/logrus"
-	"scutbot.cn/web/rmtv/internal/lark"
+	"github.com/wintbiit/rmtv/internal/lark"
 )
 
 func TestCollectQFlow(t *testing.T) {
@@ -27,18 +27,10 @@ func TestCollectQFlow(t *testing.T) {
 	if !ok {
 		logrus.Fatal("LARK_APP_SECRET is not set")
 	}
-	webhookFilePath := "webhooks.txt"
-	if wbpOverride, ok := os.LookupEnv("LARK_WEBHOOK_FILE_PATH"); ok {
-		webhookFilePath = wbpOverride
-	}
 
-	larkClient := lark.NewClient(&lark.Config{
-		AppId:           larkClientId,
-		AppSecret:       larkClientSecret,
-		WebhookFilePath: webhookFilePath,
-	})
+	larkClient := lark.NewClient(larkClientId, larkClientSecret)
 
-	card, err := larkClient.BuildMessageCard(t.Context(), entries[:5])
+	card, err := lark.BuildMessageCard(t.Context(), entries[:5])
 	if err != nil {
 		t.Fatal(err)
 	}

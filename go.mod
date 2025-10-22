@@ -1,4 +1,4 @@
-module scutbot.cn/web/rmtv
+module github.com/wintbiit/rmtv
 
 go 1.23.0
 

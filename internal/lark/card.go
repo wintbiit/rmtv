@@ -11,6 +11,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/samber/lo/parallel"
 	"github.com/sirupsen/logrus"
+	"github.com/wintbiit/rmtv/internal/job"
 )
 
 type ChatContent struct {
@@ -32,25 +33,12 @@ const (
 	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
 )
 
-type MessageEntry interface {
-	GetType() string
-	GetTypeColor() string
-	GetId() string
-	GetPic() io.Reader
-	GetTitle() string
-	GetDesc() string
-	GetTags() []string
-	GetPubDate() time.Time
-	GetAuthor() string
-	GetAuthorUrl() string
-	GetUrl() string
-	GetAdditional() string
-}
+var imageUploadClient *Client
 
-func (c *Client) BuildMessageCard(ctx context.Context, messages []MessageEntry) (*ChatCard, error) {
-	images := parallel.Map(messages, func(item MessageEntry, i int) string {
+func BuildMessageCard(ctx context.Context, messages []job.MessageEntry) (*ChatCard, error) {
+	images := parallel.Map(messages, func(item job.MessageEntry, i int) string {
 		reader := item.GetPic()
-		if reader == nil {
+		if reader == nil || imageUploadClient == nil {
 			return imageKeyFallback
 		}
 
@@ -63,7 +51,7 @@ func (c *Client) BuildMessageCard(ctx context.Context, messages []MessageEntry) 
 			}
 		}()
 
-		imageKey, err := c.uploadImage(ctx, item.GetPic())
+		imageKey, err := imageUploadClient.uploadImage(ctx, item.GetPic())
 		if err != nil {
 			logrus.Error(errors.Wrap(err, "lark uploadImage"))
 			return imageKeyFallback
@@ -84,7 +72,7 @@ func (c *Client) BuildMessageCard(ctx context.Context, messages []MessageEntry) 
 	content.Type = "template"
 	content.Data.TemplateVariable = map[string]interface{}{
 		"count": strconv.Itoa(len(messages)),
-		"object_img": lo.Map(messages, func(item MessageEntry, i int) map[string]interface{} {
+		"object_img": lo.Map(messages, func(item job.MessageEntry, i int) map[string]interface{} {
 			return map[string]interface{}{
 				"img": map[string]interface{}{
 					"img_key": images[i],
