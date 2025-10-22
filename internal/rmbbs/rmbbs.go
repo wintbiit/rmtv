@@ -54,6 +54,8 @@ func NewClient() *Client {
 		SetCookies(cookies).
 		AddRequestMiddleware(limiter(ratelimit.New(3, ratelimit.Per(time.Minute))))
 
+	logrus.Infof("Initialized RMBBS client")
+
 	return &Client{
 		categories: []string{PostCategoryArticle},
 		client:     c,
