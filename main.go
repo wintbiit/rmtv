@@ -66,10 +66,12 @@ func main() {
 
 	if larkAppId, ok := os.LookupEnv("LARK_APP_ID"); ok {
 		j = j.With(job.WithConsumer(lark.NewClient(larkAppId, os.Getenv("LARK_APP_SECRET"))))
+		logrus.Infof("enabled lark client with app id: %v", larkAppId)
 	}
 
 	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOK_FILE"); ok {
 		j = j.With(job.WithConsumer(lark.NewWebhookClient(larkWebhooks)))
+		logrus.Infof("enabled lark webhook client with file: %v", larkWebhooks)
 	}
 
 	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {
