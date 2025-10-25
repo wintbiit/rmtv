@@ -81,6 +81,9 @@ func (c *Client) Collect() ([]job.MessageEntry, error) {
 			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
 			return nil
 		}
+		result = lo.Filter(result, func(item SearchResult, index int) bool {
+			return len(lo.Intersect(strings.Split(item.Tag, ","), c.keywords)) > 0
+		})
 		return lo.Map(result, func(item SearchResult, index int) job.MessageEntry {
 			return &item
 		})
