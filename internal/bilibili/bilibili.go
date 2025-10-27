@@ -63,7 +63,7 @@ func NewClient() *Client {
 
 	return &Client{
 		client:   c,
-		keywords: strings.Split(keywords, ","),
+		keywords: strings.Split(strings.ToLower(keywords), ","),
 	}
 }
 
@@ -82,7 +82,7 @@ func (c *Client) Collect() ([]job.MessageEntry, error) {
 			return nil
 		}
 		result = lo.Filter(result, func(item SearchResult, index int) bool {
-			return len(lo.Intersect(strings.Split(item.Tag, ","), c.keywords)) > 0
+			return len(lo.Intersect(strings.Split(strings.ToLower(item.Tag), ","), c.keywords)) > 0
 		})
 		return lo.Map(result, func(item SearchResult, index int) job.MessageEntry {
 			return &item
