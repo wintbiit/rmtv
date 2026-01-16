@@ -2,16 +2,13 @@ package bilibili
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"github.com/wintbiit/rmtv/internal/job"
 )
 
 type SearchVideoResponse struct {
@@ -88,24 +85,13 @@ func (s *SearchResult) GetId() string {
 	return s.BVID
 }
 
-func (s *SearchResult) GetPic() io.Reader {
+func (s *SearchResult) GetPic() *string {
 	url := s.Pic
 	if !strings.HasPrefix(url, "http") {
 		url = "https:" + url
 	}
 
-	resp, err := http.Get(url)
-	if err != nil {
-		logrus.Error(errors.Wrap(err, "get search result pic: "+url))
-		return nil
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logrus.Error(errors.Errorf("get search result pic failed: %s, status code: %d", url, resp.StatusCode))
-		return nil
-	}
-
-	return resp.Body
+	return &url
 }
 
 func (s *SearchResult) GetTitle() string {
@@ -140,9 +126,19 @@ func (s *SearchResult) GetUrl() string {
 	return fmt.Sprintf("https://b23.tv/%s", s.BVID)
 }
 
-func (s *SearchResult) GetAdditional() string {
+type Extra struct {
+	Duration string `json:"duration"`
+}
+
+func (e Extra) String() string {
 	return fmt.Sprintf("<text_tag color='red'>⌛️ %s</text_tag>",
-		s.Duration)
+		e.Duration)
+}
+
+func (s *SearchResult) GetExtra() job.PostExtra {
+	return &Extra{
+		Duration: s.Duration,
+	}
 }
 
 var titleRegex = regexp.MustCompile(`<em[^>]*>(.*?)</em>`)

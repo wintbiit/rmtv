@@ -59,7 +59,7 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 	return nil
 }
 
-func (c *Client) PushMessage(ctx context.Context, videos []job.MessageEntry) error {
+func (c *Client) PushMessage(ctx context.Context, videos []job.Post) error {
 	message, err := BuildMessageCard(ctx, videos)
 	if err != nil {
 		return err

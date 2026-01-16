@@ -3,8 +3,9 @@ package lark
 import (
 	"context"
 	"fmt"
-	"io"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,42 +29,39 @@ type ChatCard struct {
 }
 
 const (
-	templateId       = "AAqdTMBQENhuz"
-	templateIdNoImg  = "AAqxTSf0s4wL9"
-	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
+	templateId      = "AAqdTMBQENhuz"
+	templateIdNoImg = "AAqxTSf0s4wL9"
 )
 
 var imageUploadClient *Client
 
-func BuildMessageCard(ctx context.Context, messages []job.MessageEntry) (*ChatCard, error) {
-	images := parallel.Map(messages, func(item job.MessageEntry, i int) string {
-		reader := item.GetPic()
-		if reader == nil || imageUploadClient == nil {
-			return imageKeyFallback
+func BuildMessageCard(ctx context.Context, messages []job.Post) (*ChatCard, error) {
+	images := parallel.Map(messages, func(item job.Post, i int) string {
+		url := item.GetPic()
+		if url == nil || imageUploadClient == nil {
+			return ""
 		}
 
-		defer func() {
-			if closer, ok := reader.(io.Closer); ok {
-				err := closer.Close()
-				if err != nil {
-					logrus.Error(errors.Wrap(err, "failed to close image reader"))
-				}
-			}
-		}()
+		r, err := http.Get(*url)
+		if err != nil {
+			logrus.Error(errors.Wrap(err, "failed to get image url"))
+			return ""
+		}
+		defer r.Body.Close()
 
-		imageKey, err := imageUploadClient.uploadImage(ctx, item.GetPic())
+		imageKey, err := imageUploadClient.uploadImage(ctx, r.Body)
 		if err != nil {
 			logrus.Error(errors.Wrap(err, "lark uploadImage"))
-			return imageKeyFallback
+			return ""
 		}
 
 		return imageKey
 	})
 
 	template := templateId
-	if len(lo.Filter(images, func(item string, _ int) bool {
-		return item == imageKeyFallback
-	})) > 0 {
+	if lo.EveryBy(images, func(item string) bool {
+		return item == ""
+	}) {
 		template = templateIdNoImg
 	}
 
@@ -72,16 +70,23 @@ func BuildMessageCard(ctx context.Context, messages []job.MessageEntry) (*ChatCa
 	content.Type = "template"
 	content.Data.TemplateVariable = map[string]interface{}{
 		"count": strconv.Itoa(len(messages)),
-		"object_img": lo.Map(messages, func(item job.MessageEntry, i int) map[string]interface{} {
+		"object_img": lo.Map(messages, func(item job.Post, i int) map[string]interface{} {
+			var title strings.Builder
+			title.WriteString(fmt.Sprintf("<text_tag color='%s'>%s</text_tag> ", item.GetTypeColor(), item.GetType()))
+			if !strings.Contains(item.GetTitle(), "\n") {
+				title.WriteString(fmt.Sprintf("**%s**", item.GetTitle()))
+			} else {
+				title.WriteString(item.GetTitle())
+			}
+			title.WriteString(lo.Reduce(item.GetTags(), func(acc, tag string, _ int) string {
+				return acc + "<text_tag color='blue'>" + tag + "</text_tag> "
+			}, ""))
+
 			return map[string]interface{}{
 				"img": map[string]interface{}{
 					"img_key": images[i],
 				},
-				"title": fmt.Sprintf("<text_tag color='%s'>%s</text_tag> ", item.GetTypeColor(), item.GetType()) +
-					fmt.Sprintf("**%s**", item.GetTitle()) +
-					lo.Reduce(item.GetTags(), func(acc, tag string, _ int) string {
-						return acc + "<text_tag color='blue'>" + tag + "</text_tag> "
-					}, ""),
+				"title":    title.String(),
 				"titleraw": item.GetTitle(),
 				"senddate": time.Unix(item.GetPubDate().Unix(), 0).Format(time.DateTime),
 				"url": map[string]string{
@@ -90,7 +95,7 @@ func BuildMessageCard(ctx context.Context, messages []job.MessageEntry) (*ChatCa
 				"author_url":  item.GetAuthorUrl(),
 				"author":      item.GetAuthor(),
 				"description": item.GetDesc(),
-				"additional":  item.GetAdditional(),
+				"additional":  item.GetExtra(),
 				"type":        item.GetType(),
 				"color":       item.GetTypeColor(),
 			}

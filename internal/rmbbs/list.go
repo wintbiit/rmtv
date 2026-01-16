@@ -1,15 +1,14 @@
 package rmbbs
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
+	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"github.com/wintbiit/rmtv/internal/job"
 )
 
 const (
@@ -72,10 +71,10 @@ func (l *ListPostsData) GetTypeColor() string {
 }
 
 func (l *ListPostsData) GetId() string {
-	return fmt.Sprintf("rmbbs-%d", l.Id)
+	return strconv.Itoa(l.Id)
 }
 
-func (l *ListPostsData) GetPic() io.Reader {
+func (l *ListPostsData) GetPic() *string {
 	if len(l.HeadImg) == 0 {
 		return nil
 	}
@@ -85,7 +84,7 @@ func (l *ListPostsData) GetPic() io.Reader {
 		return nil
 	}
 
-	return io.NopCloser(bytes.NewReader(data))
+	return &data
 }
 
 func (l *ListPostsData) GetTitle() string {
@@ -118,39 +117,47 @@ func (l *ListPostsData) GetUrl() string {
 	return fmt.Sprintf("https://bbs.robomaster.com/article/%d", l.Id)
 }
 
-func (l *ListPostsData) GetAdditional() string {
+type Extra struct {
+	Views     int `json:"views"`
+	Approvals int `json:"approvals"`
+	Comments  int `json:"comments"`
+}
+
+func (e *Extra) String() string {
 	return fmt.Sprintf("<text_tag color='blue'>👀 %d</text_tag> "+
 		"<text_tag color='green'>👍 %d</text_tag> "+
 		"<text_tag color='red'>🗣️ %d</text_tag>",
-		l.Views, l.Approvals, l.Comments)
+		e.Views, e.Approvals, e.Comments)
 }
 
-func (l *ListPostsData) GetHeadImage() ([]byte, error) {
+func (l *ListPostsData) GetExtra() job.PostExtra {
+	return &Extra{
+		Views:     l.Views,
+		Approvals: l.Approvals,
+		Comments:  l.Comments,
+	}
+}
+
+func (l *ListPostsData) GetHeadImage() (string, error) {
 	type ImageData struct {
 		Alt string `json:"alt"`
 		Url string `json:"url"`
 	}
 
 	if len(l.HeadImg) == 0 {
-		return nil, fmt.Errorf("no head image available")
+		return "", fmt.Errorf("no head image available")
 	}
 
 	var data []ImageData
 	if err := json.Unmarshal([]byte(l.HeadImg), &data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal head image: %w", err)
+		return "", fmt.Errorf("failed to unmarshal head image: %w", err)
 	}
 
 	if len(data) == 0 || len(data[0].Url) == 0 {
-		return nil, fmt.Errorf("no valid head image URL found")
+		return "", fmt.Errorf("no valid head image URL found")
 	}
 
-	imageData := data[0].Url
-	if len(imageData) < 5 || imageData[:5] != "data:" {
-		return nil, fmt.Errorf("head image URL is not a data URL")
-	}
-
-	imageData = imageData[len("data:image/png;base64,"):]
-	return base64.StdEncoding.DecodeString(imageData)
+	return data[0].Url, nil
 }
 
 type ListPostsResponse struct {

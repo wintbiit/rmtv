@@ -2,7 +2,6 @@ package qflow
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -26,6 +25,12 @@ type Client struct {
 	client *resty.Client
 	appId  string
 	baseId string
+}
+
+const Module = "qflow"
+
+func (c *Client) Name() string {
+	return Module
 }
 
 func NewClient() *Client {
@@ -102,7 +107,7 @@ func (m *Answer) GetId() string {
 	return m.ID
 }
 
-func (m *Answer) GetPic() io.Reader {
+func (m *Answer) GetPic() *string {
 	return nil
 }
 
@@ -142,11 +147,11 @@ func (m *Answer) GetUrl() string {
 	return m.URL
 }
 
-func (m *Answer) GetAdditional() string {
-	return ""
+func (m *Answer) GetExtra() job.PostExtra {
+	return nil
 }
 
-func (c *Client) Collect() ([]job.MessageEntry, error) {
+func (c *Client) Collect() ([]job.Post, error) {
 	resp, err := c.client.R().
 		SetBody(`{"filter":{"pageSize":50,"pageNum":1,"type":8,"sorts":[{"queId":3,"queType":4,"isAscend":false}],"queries":[],"queryKey":null}}`).
 		SetContentType("application/json").
@@ -165,7 +170,7 @@ func (c *Client) Collect() ([]job.MessageEntry, error) {
 		return nil, fmt.Errorf("failed to collect qflow: %s", resp.String())
 	}
 
-	answers := make([]job.MessageEntry, len(result.Get("data.list").Array()))
+	answers := make([]job.Post, len(result.Get("data.list").Array()))
 	for i, r := range result.Get("data.list").Array() {
 		createdAt, err := time.Parse(time.DateTime, r.Get(`answers.#(queTitle%"*申请时间*").values.0.value`).String())
 		if err != nil {
