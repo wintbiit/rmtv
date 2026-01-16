@@ -11,9 +11,9 @@ https://open.feishu.cn/app
 - `im:message`
 - `im:resource`
 
-### 3. [docker-compose](https://docs.docker.com/compose/install/)
-```bash
-curl https://raw.githubusercontent.com/wintbiit/rmtv/refs/heads/main/docker-compose.yml -o docker-compose.yml
+### 3. Kubernetes
+```shell
+kubectl apply -f https://raw.githubusercontent.com/wintbiit/rmtv/refs/heads/main/kustomization.yaml
 ```
 
 ```yaml

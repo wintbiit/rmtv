@@ -33,7 +33,7 @@ spec:
         spec:
           containers:
             - name: rmtv-scan
-              image: ghcr.io/wintbiit/rmtv:latest
+              image: ghcr.io/wintbiit/rmtv/scan:latest
               envFrom:
                 - configMapRef:
                     name: rmtv-config
@@ -63,7 +63,7 @@ spec:
     spec:
       containers:
         - name: rmtv-rss-server
-          image: ghcr.io/wintbiit/rmtv:latest
+          image: ghcr.io/wintbiit/rmtv/rss:latest
           envFrom:
             - configMapRef:
                 name: rmtv-config
