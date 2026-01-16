@@ -25,6 +25,12 @@ type Client struct {
 	keywords []string
 }
 
+const Module = "bilibili"
+
+func (c *Client) Name() string {
+	return Module
+}
+
 type Response[T any] struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -74,8 +80,8 @@ func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
 	}
 }
 
-func (c *Client) Collect() ([]job.MessageEntry, error) {
-	results := lo.Flatten(parallel.Map(c.keywords, func(item string, index int) []job.MessageEntry {
+func (c *Client) Collect() ([]job.Post, error) {
+	results := lo.Flatten(parallel.Map(c.keywords, func(item string, index int) []job.Post {
 		result, err := c.SearchVideos(item)
 		if err != nil {
 			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
@@ -84,12 +90,12 @@ func (c *Client) Collect() ([]job.MessageEntry, error) {
 		result = lo.Filter(result, func(item SearchResult, index int) bool {
 			return len(lo.Intersect(strings.Split(strings.ToLower(item.Tag), ","), c.keywords)) > 0
 		})
-		return lo.Map(result, func(item SearchResult, index int) job.MessageEntry {
+		return lo.Map(result, func(item SearchResult, index int) job.Post {
 			return &item
 		})
 	}))
 
-	results = lo.UniqBy(results, func(item job.MessageEntry) string {
+	results = lo.UniqBy(results, func(item job.Post) string {
 		return item.GetId()
 	})
 

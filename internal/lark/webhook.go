@@ -2,8 +2,6 @@ package lark
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -18,34 +16,12 @@ type WebhookProvider interface {
 	GetWebhooks() ([]string, error)
 }
 
-type fileWebhookProvider struct {
-	filePath string
-}
-
-func (f fileWebhookProvider) GetWebhooks() ([]string, error) {
-	content, err := os.ReadFile(f.filePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			logrus.Warnf("webhooks file at %s not set.", f.filePath)
-			return nil, nil
-		} else {
-			return nil, errors.Wrapf(err, "failed to read file %s", f.filePath)
-		}
-	}
-
-	return strings.Split(string(content), "\n"), nil
-}
-
-func NewFileWebhookProvider(filePath string) WebhookProvider {
-	return &fileWebhookProvider{filePath: filePath}
-}
-
 type WebhookClient struct {
-	client          *resty.Client
-	webhookProvider WebhookProvider
+	client   *resty.Client
+	webhooks []string
 }
 
-func NewWebhookClient(filepath string) *WebhookClient {
+func NewWebhookClient(webhooks []string) *WebhookClient {
 	c := resty.New().
 		SetRetryCount(3).
 		SetRetryWaitTime(2 * time.Second).
@@ -54,25 +30,20 @@ func NewWebhookClient(filepath string) *WebhookClient {
 		SetTimeout(10 * time.Second)
 
 	client := &WebhookClient{
-		client:          c,
-		webhookProvider: NewFileWebhookProvider(filepath),
+		client:   c,
+		webhooks: webhooks,
 	}
 
 	return client
 }
 
-func (c *WebhookClient) PushMessage(ctx context.Context, videos []job.MessageEntry) error {
+func (c *WebhookClient) PushMessage(ctx context.Context, videos []job.Post) error {
 	message, err := BuildMessageCard(ctx, videos)
 	if err != nil {
 		return err
 	}
 
-	webhooks, err := c.webhookProvider.GetWebhooks()
-	if err != nil {
-		return errors.Wrap(err, "failed to get webhooks")
-	}
-
-	for _, webhook := range webhooks {
+	for _, webhook := range c.webhooks {
 		resp, err := c.client.R().
 			SetContext(ctx).
 			SetHeader("Content-Type", "application/json").

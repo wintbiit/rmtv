@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rmtv-config
+  namespace: default
+data:
+  TZ: "Asia/Shanghai"
+  BILI_KEYWORDS: "RoboMaster,机甲大师"
+  DB_URL: "postgres://postgres:postgres@127.0.0.1:5432/rmtv?sslmode=disable"
+  BILI_COOKIES: "a=b"
+  RMBBS_COOKIES: "a=b"
+  QFLOW_COOKIES: "a=b"
+  QFLOW_APP_ID: ""
+  QFLOW_BASE_ID: ""
+  LARK_APP_ID: ""
+  LARK_APP_SECRET: ""
+  LARK_WEBHOOKS: ""
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rmtv-scan
+  namespace: default
+spec:
+  schedule: "0 * * * *"
+  timeZone: "Asia/Shanghai"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: rmtv-scan
+              image: ghcr.io/wintbiit/rmtv:latest
+              envFrom:
+                - configMapRef:
+                    name: rmtv-config
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+          restartPolicy: OnFailure
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rmtv-rss
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rmtv-rss
+  template:
+    metadata:
+      labels:
+        app: rmtv-rss
+    spec:
+      containers:
+        - name: rmtv-rss-server
+          image: ghcr.io/wintbiit/rmtv:latest
+          envFrom:
+            - configMapRef:
+                name: rmtv-config
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rmtv-rss-service
+  namespace: default
+spec:
+  selector:
+    app: rmtv-rss
+  ports:
+    - port: 80
+      targetPort: 8080

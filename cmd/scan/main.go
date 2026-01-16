@@ -5,41 +5,36 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/wintbiit/rmtv/internal/lark"
-	"github.com/wintbiit/rmtv/internal/qflow"
-
 	"github.com/wintbiit/rmtv/internal/bilibili"
 	"github.com/wintbiit/rmtv/internal/job"
+	"github.com/wintbiit/rmtv/internal/lark"
+	"github.com/wintbiit/rmtv/internal/qflow"
 	"github.com/wintbiit/rmtv/internal/rmbbs"
 )
 
 var modules = map[string]func() job.MessageProvider{
-	"bilibili": func() job.MessageProvider {
+	bilibili.Module: func() job.MessageProvider {
 		return bilibili.NewClient()
 	},
-	"rmbbs": func() job.MessageProvider {
+	rmbbs.Module: func() job.MessageProvider {
 		return rmbbs.NewClient()
 	},
-	"qflow": func() job.MessageProvider {
+	qflow.Module: func() job.MessageProvider {
 		return qflow.NewClient()
 	},
 }
 
 func main() {
-	interval, ok := os.LookupEnv("SCAN_INTERVAL")
-	if !ok {
-		interval = "10m"
-	}
+	godotenv.Load()
 
-	dbpath, ok := os.LookupEnv("DB_PATH")
+	db, ok := os.LookupEnv("DB_URL")
 	if !ok {
-		dbpath = "data/rmtv.db"
+		panic("DB_URL is required")
 	}
-	logrus.Infof("db path: %v", dbpath)
 
 	enableModules, ok := os.LookupEnv("ENABLE_MODULES")
 	if !ok {
@@ -47,15 +42,8 @@ func main() {
 	}
 	logrus.Infof("enabled modules: %v", enableModules)
 
-	scanInterval, err := time.ParseDuration(interval)
-	if err != nil {
-		logrus.Fatalf("failed to parse scan interval: %v", err)
-	}
-	logrus.Infof("scan interval: %v", scanInterval)
-
 	j := job.NewTvJob(
-		job.WithScanInterval(scanInterval),
-		job.WithDBPath(dbpath),
+		job.WithDb(db),
 	)
 
 	for _, module := range strings.Split(enableModules, ",") {
@@ -69,8 +57,8 @@ func main() {
 		logrus.Infof("enabled lark client with app id: %v", larkAppId)
 	}
 
-	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOK_FILE"); ok {
-		j = j.With(job.WithConsumer(lark.NewWebhookClient(larkWebhooks)))
+	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOKS"); ok {
+		j = j.With(job.WithConsumer(lark.NewWebhookClient(strings.Split(larkWebhooks, ","))))
 		logrus.Infof("enabled lark webhook client with file: %v", larkWebhooks)
 	}
 
@@ -82,5 +70,6 @@ func main() {
 
 	if err := j.Run(context.Background()); err != nil {
 		logrus.Error(errors.Wrap(err, "failed to run job"))
+		os.Exit(1)
 	}
 }

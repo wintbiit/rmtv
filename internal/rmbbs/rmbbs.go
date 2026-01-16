@@ -25,6 +25,12 @@ type Client struct {
 	client     *resty.Client
 }
 
+const Module = "rmbbs"
+
+func (c *Client) Name() string {
+	return Module
+}
+
 type Response[T any] struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -69,19 +75,19 @@ func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
 	}
 }
 
-func (c *Client) Collect() ([]job.MessageEntry, error) {
-	results := lo.Flatten(parallel.Map(c.categories, func(item string, index int) []job.MessageEntry {
+func (c *Client) Collect() ([]job.Post, error) {
+	results := lo.Flatten(parallel.Map(c.categories, func(item string, index int) []job.Post {
 		result, err := c.ListPosts(item)
 		if err != nil {
 			logrus.Errorf("Failed to search videos with keyword %s: %v", item, err)
 			return nil
 		}
-		return lo.Map(result, func(item ListPostsData, index int) job.MessageEntry {
+		return lo.Map(result, func(item ListPostsData, index int) job.Post {
 			return &item
 		})
 	}))
 
-	results = lo.UniqBy(results, func(item job.MessageEntry) string {
+	results = lo.UniqBy(results, func(item job.Post) string {
 		return item.GetId()
 	})
 
