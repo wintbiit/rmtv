@@ -29,8 +29,9 @@ type ChatCard struct {
 }
 
 const (
-	templateId      = "AAqdTMBQENhuz"
-	templateIdNoImg = "AAqxTSf0s4wL9"
+	templateId       = "AAqdTMBQENhuz"
+	templateIdNoImg  = "AAqxTSf0s4wL9"
+	imageKeyFallback = "img_v3_02nc_aa0dfc39-5024-4d47-a9a1-00d99a81a09g"
 )
 
 var imageUploadClient *Client
@@ -39,28 +40,28 @@ func BuildMessageCard(ctx context.Context, messages []job.Post) (*ChatCard, erro
 	images := parallel.Map(messages, func(item job.Post, i int) string {
 		url := item.GetPic()
 		if url == nil || imageUploadClient == nil {
-			return ""
+			return imageKeyFallback
 		}
 
 		r, err := http.Get(*url)
 		if err != nil {
 			logrus.Error(errors.Wrap(err, "failed to get image url"))
-			return ""
+			return imageKeyFallback
 		}
 		defer r.Body.Close()
 
 		imageKey, err := imageUploadClient.uploadImage(ctx, r.Body)
 		if err != nil {
 			logrus.Error(errors.Wrap(err, "lark uploadImage"))
-			return ""
+			return imageKeyFallback
 		}
 
 		return imageKey
 	})
 
 	template := templateId
-	if lo.EveryBy(images, func(item string) bool {
-		return item == ""
+	if lo.ContainsBy(images, func(item string) bool {
+		return item == imageKeyFallback
 	}) {
 		template = templateIdNoImg
 	}
