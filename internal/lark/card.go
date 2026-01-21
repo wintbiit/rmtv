@@ -96,7 +96,7 @@ func BuildMessageCard(ctx context.Context, messages []job.Post) (*ChatCard, erro
 				"author_url":  item.GetAuthorUrl(),
 				"author":      item.GetAuthor(),
 				"description": item.GetDesc(),
-				"additional":  item.GetExtra(),
+				"additional":  item.GetExtra().String(),
 				"type":        item.GetType(),
 				"color":       item.GetTypeColor(),
 			}
