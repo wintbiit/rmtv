@@ -148,7 +148,7 @@ func (m *Answer) GetUrl() string {
 }
 
 func (m *Answer) GetExtra() job.PostExtra {
-	return nil
+	return &strings.Builder{}
 }
 
 func (c *Client) Collect() ([]job.Post, error) {
