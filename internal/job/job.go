@@ -110,7 +110,7 @@ func (j *TvJob) onNewMessage(ctx context.Context, entries []Post) error {
 		return err
 	}
 
-	logrus.Infof("pushed %d messages to %d consumers", len(entries), len(j.consumers))
+	logrus.Infof("Finished notification delivery for scan with %d entries", len(entries))
 
 	return nil
 }

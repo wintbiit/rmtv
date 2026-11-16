@@ -56,7 +56,7 @@ var markdownEscaper = strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", 
 var imageUploadClient *Client
 
 func BuildMessageCard(ctx context.Context, posts []job.Post) (*ChatCard, error) {
-	cards, err := BuildMessageCards(ctx, posts)
+	cards, err := buildMessageCards(ctx, posts, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -66,15 +66,19 @@ func BuildMessageCard(ctx context.Context, posts []job.Post) (*ChatCard, error) 
 	return cards[0], nil
 }
 
-func BuildMessageCards(ctx context.Context, posts []job.Post) ([]*ChatCard, error) {
+func buildMessageCards(ctx context.Context, posts []job.Post, maxCards int) ([]*ChatCard, error) {
 	items := make([]job.Item, 0, len(posts))
 	for _, post := range posts {
 		items = append(items, job.ItemFromPost(post))
 	}
-	return RenderCards(ctx, items)
+	return renderCards(ctx, items, maxCards)
 }
 
 func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
+	return renderCards(ctx, items, 0)
+}
+
+func renderCards(ctx context.Context, items []job.Item, maxCards int) ([]*ChatCard, error) {
 	items = slices.Clone(items)
 	slices.SortStableFunc(items, func(a, b job.Item) int { return b.PublishedAt.Compare(a.PublishedAt) })
 	entries := make([]cardEntry, 0, len(items))
@@ -100,7 +104,7 @@ func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
 		}
 		entries = append(entries, entry)
 	}
-	return packCards(entries)
+	return packCards(entries, maxCards)
 }
 
 func plain(text string) element    { return element{"tag": "plain_text", "content": text} }
@@ -306,14 +310,14 @@ func fitsCard(card *ChatCard) bool {
 	return len(webhook) <= maxCardBytes && len(envelope) <= maxCardBytes
 }
 
-func packCards(entries []cardEntry) ([]*ChatCard, error) {
+func packCards(entries []cardEntry, maxCards int) ([]*ChatCard, error) {
 	type page struct {
 		entries []cardEntry
 		nodes   []element
 	}
 	var pages []page
 	var current page
-	const pageAllowance = " · 999999/999999"
+	const pageAllowance = " · 9999999999999999999/9999999999999999999 · 另有 9999999999999999999 条未展示"
 	for _, entry := range entries {
 		section := renderEntry(entry, true)
 		proposed := page{append(slices.Clone(current.entries), entry), append(slices.Clone(current.nodes), section)}
@@ -323,6 +327,10 @@ func packCards(entries []cardEntry) ([]*ChatCard, error) {
 		}
 		if len(current.nodes) > 0 {
 			pages = append(pages, current)
+			if maxCards > 0 && len(pages) == maxCards {
+				current = page{}
+				break
+			}
 		}
 		proposed = page{[]cardEntry{entry}, []element{section}}
 		if !fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
@@ -336,11 +344,18 @@ func packCards(entries []cardEntry) ([]*ChatCard, error) {
 	if len(current.nodes) > 0 {
 		pages = append(pages, current)
 	}
+	unshown := len(entries)
+	for _, page := range pages {
+		unshown -= len(page.entries)
+	}
 	cards := make([]*ChatCard, 0, len(pages))
 	for i, page := range pages {
 		suffix := ""
 		if len(pages) > 1 {
 			suffix = fmt.Sprintf(" · %d/%d", i+1, len(pages))
+		}
+		if i == len(pages)-1 && unshown > 0 {
+			suffix += fmt.Sprintf(" · 另有 %d 条未展示", unshown)
 		}
 		card := renderPage(page.entries, page.nodes, suffix)
 		if !fitsCard(card) {

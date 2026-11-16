@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -51,14 +52,25 @@ func main() {
 		}
 	}
 
+	delivery := lark.Delivery{MaxCards: lark.DefaultMaxCardsPerRound}
+	if raw := strings.TrimSpace(os.Getenv("RMTV_MAX_CARDS_PER_ROUND")); raw != "" {
+		if count, err := strconv.Atoi(raw); err == nil && count > 0 {
+			delivery.MaxCards = count
+		} else {
+			logrus.Warn("RMTV_MAX_CARDS_PER_ROUND must be a positive integer, using default")
+		}
+	}
 	if larkAppId, ok := os.LookupEnv("LARK_APP_ID"); ok {
-		j = j.With(job.WithConsumer(lark.NewClient(larkAppId, os.Getenv("LARK_APP_SECRET"))))
+		delivery.App = lark.NewClient(larkAppId, os.Getenv("LARK_APP_SECRET"))
 		logrus.Infof("enabled lark client with app id: %v", larkAppId)
 	}
 
 	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOKS"); ok {
-		j = j.With(job.WithConsumer(lark.NewWebhookClient(strings.Split(larkWebhooks, ","))))
+		delivery.Webhook = lark.NewWebhookClient(strings.Split(larkWebhooks, ","))
 		logrus.Info("enabled lark webhook client")
+	}
+	if delivery.App != nil || delivery.Webhook != nil {
+		j = j.With(job.WithConsumer(delivery))
 	}
 
 	if err := j.Run(context.Background()); err != nil {

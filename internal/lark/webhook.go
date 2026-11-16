@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/wintbiit/rmtv/internal/job"
 	"go.uber.org/ratelimit"
 	"resty.dev/v3"
 )
@@ -28,11 +27,7 @@ func NewWebhookClient(webhooks []string) *WebhookClient {
 	return &WebhookClient{client: resty.New().SetTimeout(10 * time.Second), webhooks: webhooks}
 }
 
-func (c *WebhookClient) PushMessage(ctx context.Context, posts []job.Post) error {
-	cards, err := BuildMessageCards(ctx, posts)
-	if err != nil || len(cards) == 0 {
-		return err
-	}
+func (c *WebhookClient) pushCards(ctx context.Context, cards []preparedCard) error {
 	var failures []error
 	for i, webhook := range c.webhooks {
 		webhook = strings.TrimSpace(webhook)
@@ -47,7 +42,7 @@ func (c *WebhookClient) PushMessage(ctx context.Context, posts []job.Post) error
 				if err := ctx.Err(); err != nil {
 					return false, err
 				}
-				return c.sendCard(ctx, webhook, card)
+				return c.sendCard(ctx, webhook, card.webhook)
 			})
 			if err != nil {
 				failures = append(failures, fmt.Errorf("webhook %d card %d/%d: %w", i+1, page+1, len(cards), err))
@@ -59,9 +54,9 @@ func (c *WebhookClient) PushMessage(ctx context.Context, posts []job.Post) error
 	return errors.Join(failures...)
 }
 
-func (c *WebhookClient) sendCard(ctx context.Context, webhook string, card *ChatCard) (bool, error) {
+func (c *WebhookClient) sendCard(ctx context.Context, webhook string, body []byte) (bool, error) {
 	response, err := c.client.R().SetContext(ctx).SetHeader("Content-Type", "application/json").
-		SetBody(ChatContent{MsgType: "interactive", Card: card}).Post(webhook)
+		SetBody(body).Post(webhook)
 	if err != nil {
 		return false, errors.New("webhook request failed")
 	}

@@ -3,7 +3,6 @@ package lark
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"time"
@@ -12,7 +11,6 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/wintbiit/rmtv/internal/job"
 )
 
 type Config struct {
@@ -63,13 +61,9 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 	return nil
 }
 
-func (c *Client) PushMessage(ctx context.Context, posts []job.Post) error {
-	cards, err := BuildMessageCards(ctx, posts)
-	if err != nil || len(cards) == 0 {
-		return err
-	}
+func (c *Client) pushCards(ctx context.Context, cards []preparedCard) error {
 	var failures []error
-	err = c.ForeachChat(ctx, func(chat *larkim.ListChat) {
+	err := c.ForeachChat(ctx, func(chat *larkim.ListChat) {
 		if chat.ChatId == nil {
 			return
 		}
@@ -84,15 +78,11 @@ func (c *Client) PushMessage(ctx context.Context, posts []job.Post) error {
 	return stderrors.Join(append(failures, err)...)
 }
 
-func (c *Client) sendCard(ctx context.Context, chatID string, card *ChatCard) error {
-	content, err := json.Marshal(card)
-	if err != nil {
-		return err
-	}
+func (c *Client) sendCard(ctx context.Context, chatID string, card preparedCard) error {
 	digest := sha256.Sum256([]byte(chatID + "\x00" + card.identity))
 	request := larkim.NewCreateMessageReqBuilder().ReceiveIdType(larkim.ReceiveIdTypeChatId).
 		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).
-			MsgType(larkim.MsgTypeInteractive).Content(string(content)).
+			MsgType(larkim.MsgTypeInteractive).Content(card.content).
 			Uuid(fmt.Sprintf("%x", digest[:16])).Build()).Build()
 	return retryCard(ctx, func() (bool, error) {
 		result, err := c.client.Im.V1.Message.Create(ctx, request)

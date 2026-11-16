@@ -27,8 +27,11 @@ services:
       COOKIES: "<bilibili_cookies>"
       LARK_APP_ID: "<your_app_id>"
       LARK_APP_SECRET: "<your_app_secret>"
+      RMTV_MAX_CARDS_PER_ROUND: "2"
 ```
 填写.
+
+`RMTV_MAX_CARDS_PER_ROUND` 设置每轮扫描发给每个飞书目的地的最大卡片数，默认为 2，支持正整数。超出的条目仍会入库，最后一张卡会标注未展示数量。
 
 ### 4. Run
 ```bash

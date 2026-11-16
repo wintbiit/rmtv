@@ -24,7 +24,7 @@ func TestMixedCardsPreserveEveryEntry(t *testing.T) {
 	entries[0].pictures = []cardImage{{Key: "img_cover"}, {Key: "img_next"}}
 	entries[1].Number = "481"
 	entries[1].pictures = []cardImage{{Key: "img_diagram", Caption: "问题附图", AfterTitle: true}}
-	cards, err := packCards(entries)
+	cards, err := packCards(entries, 0)
 	if err != nil || len(cards) < 2 {
 		t.Fatalf("expected multiple cards, got %d: %v", len(cards), err)
 	}
@@ -48,6 +48,36 @@ func TestMixedCardsPreserveEveryEntry(t *testing.T) {
 	for _, expected := range []string{"img_combination", "img_diagram", "collapsible_panel", "作者甲 · 11-16 15:15", "#481 · 11-16 15:15", "summary"} {
 		if !strings.Contains(payload, expected) {
 			t.Errorf("missing %q", expected)
+		}
+	}
+}
+
+func TestCardCapReportsUnshownEntries(t *testing.T) {
+	entries := make([]cardEntry, 30)
+	for i := range entries {
+		entries[i].Item = job.Item{
+			ID: fmt.Sprint(i), Title: fmt.Sprintf("标题 %d", i),
+			URL: fmt.Sprintf("https://example.com/entry/%02d", i), Body: strings.Repeat("正文", 400),
+		}
+	}
+	for _, limit := range []int{1, DefaultMaxCardsPerRound, 3} {
+		cards, err := packCards(entries, limit)
+		if err != nil || len(cards) != limit {
+			t.Fatalf("cap %d: got %d cards, error %v", limit, len(cards), err)
+		}
+		shown := 0
+		for _, card := range cards {
+			if !fitsCard(card) {
+				t.Fatal("limited card exceeds send limits")
+			}
+			shown += strings.Count(card.identity, "\n") + 1
+		}
+		final, err := json.Marshal(cards[len(cards)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if shown >= len(entries) || !strings.Contains(string(final), fmt.Sprintf("另有 %d 条未展示", len(entries)-shown)) {
+			t.Fatalf("cap %d: reported count does not match the %d shown entries", limit, shown)
 		}
 	}
 }
@@ -114,7 +144,7 @@ func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
 
 func TestOversizedDetailsLeaveTheOriginalLink(t *testing.T) {
 	entry := cardEntry{Item: job.Item{Title: "原始问题", URL: "https://example.com/a", Body: strings.Repeat("正文", 20000)}}
-	cards, err := packCards([]cardEntry{entry})
+	cards, err := packCards([]cardEntry{entry}, 0)
 	if err != nil || len(cards) != 1 {
 		t.Fatalf("got %d cards: %v", len(cards), err)
 	}
@@ -141,7 +171,11 @@ func TestWebhookRejectsFeishuErrorWithHTTP200(t *testing.T) {
 	defer server.Close()
 	client := NewWebhookClient([]string{server.URL})
 	card := renderPage([]cardEntry{{Item: job.Item{Title: "example"}}}, nil, "")
-	if err := retryCard(context.Background(), func() (bool, error) { return client.sendCard(context.Background(), server.URL, card) }); err != nil || calls != 2 {
+	body, err := json.Marshal(ChatContent{MsgType: "interactive", Card: card})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := retryCard(context.Background(), func() (bool, error) { return client.sendCard(context.Background(), server.URL, body) }); err != nil || calls != 2 {
 		t.Fatalf("calls=%d error=%v", calls, err)
 	}
 }
