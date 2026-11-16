@@ -1,6 +1,7 @@
 package qflow
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -11,6 +12,7 @@ import (
 )
 
 func TestCollectQFlow(t *testing.T) {
+	ctx := context.Background()
 	client := NewClient()
 	entries, err := client.Collect()
 	if err != nil {
@@ -30,7 +32,7 @@ func TestCollectQFlow(t *testing.T) {
 
 	larkClient := lark.NewClient(larkClientId, larkClientSecret)
 
-	card, err := lark.BuildMessageCard(t.Context(), entries[:5])
+	card, err := lark.BuildMessageCard(ctx, entries[:5])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestCollectQFlow(t *testing.T) {
 
 	t.Log(string(data))
 
-	err = larkClient.PushMessageToChat(t.Context(), "oc_a9043042ede841a61ba05e9effdf60ca", string(data))
+	err = larkClient.PushMessageToChat(ctx, "oc_a9043042ede841a61ba05e9effdf60ca", string(data))
 	if err != nil {
 		t.Fatal(err)
 	}

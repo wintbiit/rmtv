@@ -14,11 +14,10 @@ import (
 )
 
 type TvJob struct {
-	providers       []MessageProvider
-	consumers       []MessageConsumer
-	dbUrl           string
-	db              *ent.Client
-	maxCountPerPush int
+	providers []MessageProvider
+	consumers []MessageConsumer
+	dbUrl     string
+	db        *ent.Client
 }
 
 type TvJobOption func(*TvJob)
@@ -26,15 +25,6 @@ type TvJobOption func(*TvJob)
 func WithDb(db string) TvJobOption {
 	return func(j *TvJob) {
 		j.dbUrl = db
-	}
-}
-
-func WithMaxCountPerPush(count int) TvJobOption {
-	return func(j *TvJob) {
-		if count <= 0 {
-			logrus.Fatal("maxCountPerPush must be greater than 0")
-		}
-		j.maxCountPerPush = count
 	}
 }
 
@@ -51,9 +41,7 @@ func WithConsumer(c MessageConsumer) TvJobOption {
 }
 
 func NewTvJob(options ...TvJobOption) *TvJob {
-	job := &TvJob{
-		maxCountPerPush: 10,
-	}
+	job := &TvJob{}
 
 	for _, option := range options {
 		option(job)
@@ -110,10 +98,6 @@ func (j *TvJob) onNewMessage(ctx context.Context, entries []Post) error {
 	logrus.Infof("Incoming %d new entries: %v", len(entries), lo.Map(entries, func(item Post, _ int) string {
 		return item.GetId()
 	}))
-
-	if j.maxCountPerPush > 0 && len(entries) > j.maxCountPerPush {
-		entries = entries[:j.maxCountPerPush]
-	}
 
 	errs := make([]error, 0, len(j.consumers))
 	for _, consumer := range j.consumers {

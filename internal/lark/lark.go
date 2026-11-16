@@ -2,7 +2,11 @@ package lark
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	stderrors "errors"
+	"fmt"
+	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -23,7 +27,7 @@ type Client struct {
 }
 
 func NewClient(appId, appSecret string) *Client {
-	larkClient := lark.NewClient(appId, appSecret)
+	larkClient := lark.NewClient(appId, appSecret, lark.WithReqTimeout(20*time.Second))
 
 	client := &Client{
 		client: larkClient,
@@ -59,38 +63,69 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 	return nil
 }
 
-func (c *Client) PushMessage(ctx context.Context, videos []job.Post) error {
-	message, err := BuildMessageCard(ctx, videos)
+func (c *Client) PushMessage(ctx context.Context, posts []job.Post) error {
+	cards, err := BuildMessageCards(ctx, posts)
+	if err != nil || len(cards) == 0 {
+		return err
+	}
+	var failures []error
+	err = c.ForeachChat(ctx, func(chat *larkim.ListChat) {
+		if chat.ChatId == nil {
+			return
+		}
+		for i, card := range cards {
+			if err := c.sendCard(ctx, *chat.ChatId, card); err != nil {
+				failures = append(failures, fmt.Errorf("chat %s card %d/%d: %w", *chat.ChatId, i+1, len(cards), err))
+				break
+			}
+			logrus.WithFields(logrus.Fields{"chat_id": *chat.ChatId, "page": i + 1, "pages": len(cards)}).Info("Sent RMTV card")
+		}
+	})
+	return stderrors.Join(append(failures, err)...)
+}
+
+func (c *Client) sendCard(ctx context.Context, chatID string, card *ChatCard) error {
+	content, err := json.Marshal(card)
 	if err != nil {
 		return err
 	}
-
-	messageData, _ := json.Marshal(message)
-	if err = c.ForeachChat(ctx, func(chat *larkim.ListChat) {
-		req := larkim.NewCreateMessageReqBuilder().
-			ReceiveIdType(larkim.ReceiveIdTypeChatId).
-			Body(larkim.NewCreateMessageReqBodyBuilder().
-				ReceiveId(*chat.ChatId).
-				MsgType(larkim.MsgTypeInteractive).
-				Content(string(messageData)).
-				Build()).
-			Build()
-
-		resp, err := c.client.Im.V1.Message.Create(ctx, req)
+	digest := sha256.Sum256([]byte(chatID + "\x00" + card.identity))
+	request := larkim.NewCreateMessageReqBuilder().ReceiveIdType(larkim.ReceiveIdTypeChatId).
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).
+			MsgType(larkim.MsgTypeInteractive).Content(string(content)).
+			Uuid(fmt.Sprintf("%x", digest[:16])).Build()).Build()
+	return retryCard(ctx, func() (bool, error) {
+		result, err := c.client.Im.V1.Message.Create(ctx, request)
 		if err != nil {
-			logrus.Errorf("failed to create message: %v", err)
-			return
+			return true, err
 		}
-
-		if !resp.Success() {
-			logrus.Error(errors.Wrap(resp, "failed to create message"))
-			return
+		if result.Success() {
+			return false, nil
 		}
+		status := 0
+		if result.ApiResp != nil {
+			status = result.StatusCode
+		}
+		return status == 429 || status >= 500 || result.Code == 99991400, fmt.Errorf("Feishu message API code %d: %s", result.Code, result.Msg)
+	})
+}
 
-		logrus.Infof("successfully pushed message to chat: %s(%s)", *chat.Name, *chat.ChatId)
-	}); err != nil {
-		logrus.Errorf("failed to push message to chat: %v", err)
+// Retry one card so success for another page does not cause it to be resent here.
+func retryCard(ctx context.Context, send func() (bool, error)) error {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		retry, err := send()
+		if err == nil || !retry || attempt == 2 {
+			return err
+		}
+		timer := time.NewTimer(time.Second << attempt)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
-
-	return nil
 }

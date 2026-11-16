@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -59,13 +58,7 @@ func main() {
 
 	if larkWebhooks, ok := os.LookupEnv("LARK_WEBHOOKS"); ok {
 		j = j.With(job.WithConsumer(lark.NewWebhookClient(strings.Split(larkWebhooks, ","))))
-		logrus.Infof("enabled lark webhook client with file: %v", larkWebhooks)
-	}
-
-	if maxCountPerPush, ok := os.LookupEnv("MAX_COUNT_PER_PUSH"); ok {
-		if count, err := strconv.Atoi(maxCountPerPush); err == nil && count > 0 {
-			j = j.With(job.WithMaxCountPerPush(count))
-		}
+		logrus.Info("enabled lark webhook client")
 	}
 
 	if err := j.Run(context.Background()); err != nil {

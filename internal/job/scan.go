@@ -22,7 +22,7 @@ type MessageConsumer interface {
 }
 
 func (j *TvJob) scan(ctx context.Context) error {
-	logrus.Debug("Starting TV scan with providers: %+v", j.providers)
+	logrus.Debugf("Starting TV scan with providers: %+v", j.providers)
 
 	tx, err := j.db.Tx(ctx)
 	if err != nil {

@@ -86,8 +86,11 @@ func (s *SearchResult) GetId() string {
 }
 
 func (s *SearchResult) GetPic() *string {
-	url := s.Pic
-	if !strings.HasPrefix(url, "http") {
+	url := strings.TrimSpace(s.Pic)
+	if url == "" {
+		return nil
+	}
+	if strings.HasPrefix(url, "//") {
 		url = "https:" + url
 	}
 

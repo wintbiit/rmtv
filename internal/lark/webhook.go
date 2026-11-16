@@ -2,13 +2,16 @@ package lark
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
-	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/wintbiit/rmtv/internal/job"
-	"github.com/wintbiit/rmtv/utils"
+	"go.uber.org/ratelimit"
 	"resty.dev/v3"
 )
 
@@ -22,47 +25,68 @@ type WebhookClient struct {
 }
 
 func NewWebhookClient(webhooks []string) *WebhookClient {
-	c := resty.New().
-		SetRetryCount(3).
-		SetRetryWaitTime(2 * time.Second).
-		SetRetryMaxWaitTime(10 * time.Second).
-		SetDebug(utils.Debug).
-		SetTimeout(10 * time.Second)
-
-	client := &WebhookClient{
-		client:   c,
-		webhooks: webhooks,
-	}
-
-	return client
+	return &WebhookClient{client: resty.New().SetTimeout(10 * time.Second), webhooks: webhooks}
 }
 
-func (c *WebhookClient) PushMessage(ctx context.Context, videos []job.Post) error {
-	message, err := BuildMessageCard(ctx, videos)
-	if err != nil {
+func (c *WebhookClient) PushMessage(ctx context.Context, posts []job.Post) error {
+	cards, err := BuildMessageCards(ctx, posts)
+	if err != nil || len(cards) == 0 {
 		return err
 	}
-
-	for _, webhook := range c.webhooks {
-		resp, err := c.client.R().
-			SetContext(ctx).
-			SetHeader("Content-Type", "application/json").
-			SetBody(ChatContent{
-				MsgType: larkim.MsgTypeInteractive,
-				Card:    message,
-			}).
-			Post(webhook)
-		if err != nil {
-			logrus.Errorf("failed to post webhook: %v", err)
+	var failures []error
+	for i, webhook := range c.webhooks {
+		webhook = strings.TrimSpace(webhook)
+		if webhook == "" {
 			continue
 		}
-
-		if !resp.IsSuccess() {
-			logrus.Error(errors.Wrapf(err, "lark push message failed: %s", resp.String()))
+		// Feishu custom bots allow 100 requests/minute and five/second.
+		pace := ratelimit.New(100, ratelimit.Per(time.Minute), ratelimit.WithoutSlack)
+		for page, card := range cards {
+			err := retryCard(ctx, func() (bool, error) {
+				pace.Take()
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
+				return c.sendCard(ctx, webhook, card)
+			})
+			if err != nil {
+				failures = append(failures, fmt.Errorf("webhook %d card %d/%d: %w", i+1, page+1, len(cards), err))
+				break
+			}
+			logrus.WithFields(logrus.Fields{"webhook_index": i + 1, "page": page + 1, "pages": len(cards)}).Info("Sent RMTV card")
 		}
-
-		logrus.Infof("successfully pushed message to webhook: %s", webhook)
 	}
+	return errors.Join(failures...)
+}
 
-	return nil
+func (c *WebhookClient) sendCard(ctx context.Context, webhook string, card *ChatCard) (bool, error) {
+	response, err := c.client.R().SetContext(ctx).SetHeader("Content-Type", "application/json").
+		SetBody(ChatContent{MsgType: "interactive", Card: card}).Post(webhook)
+	if err != nil {
+		return false, errors.New("webhook request failed")
+	}
+	if response.StatusCode() == http.StatusTooManyRequests {
+		return true, fmt.Errorf("webhook HTTP %d", response.StatusCode())
+	}
+	if !response.IsSuccess() {
+		return false, fmt.Errorf("webhook HTTP %d", response.StatusCode())
+	}
+	var result struct {
+		Code       *int
+		StatusCode *int
+	}
+	if err := json.Unmarshal(response.Bytes(), &result); err != nil {
+		return false, errors.New("invalid webhook acknowledgement")
+	}
+	code := result.Code
+	if code == nil {
+		code = result.StatusCode
+	}
+	if code == nil {
+		return false, errors.New("missing webhook acknowledgement")
+	}
+	if *code != 0 {
+		return *code == 11232 || *code == 99991400, fmt.Errorf("webhook response code %d", *code)
+	}
+	return false, nil
 }

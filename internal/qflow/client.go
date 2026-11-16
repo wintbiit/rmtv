@@ -3,6 +3,7 @@ package qflow
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -82,7 +83,9 @@ func limiter(limiter ratelimit.Limiter) resty.RequestMiddleware {
 }
 
 type Answer struct {
-	ID          string    // 编号
+	ID          string // 编号
+	Number      string
+	Images      []job.ItemImage
 	Status      string    // 流程状态
 	University  string    // 学校名
 	Team        string    // 队伍名
@@ -109,6 +112,37 @@ func (m *Answer) GetId() string {
 
 func (m *Answer) GetPic() *string {
 	return nil
+}
+
+func (m *Answer) CardNumber() string { return m.Number }
+
+func (m *Answer) CardImages() []job.ItemImage { return m.Images }
+
+func answerImages(record gjson.Result) []job.ItemImage {
+	var question, answer []job.ItemImage
+	for _, field := range record.Get("answers").Array() {
+		if field.Get("queType").Int() != 13 {
+			continue
+		}
+		for _, attachment := range field.Get("values").Array() {
+			name := strings.ToLower(attachment.Get("dataValue").String())
+			isImage := false
+			for _, extension := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif"} {
+				isImage = isImage || strings.HasSuffix(name, extension)
+			}
+			address, err := url.Parse(attachment.Get("value").String())
+			if !isImage || err != nil || address.Scheme != "https" ||
+				(address.Hostname() != "qingflow.com" && !strings.HasSuffix(address.Hostname(), ".qingflow.com")) {
+				continue
+			}
+			if strings.Contains(field.Get("queTitle").String(), "反馈") {
+				answer = append(answer, job.ItemImage{URL: address.String(), Caption: "答复附图"})
+			} else {
+				question = append(question, job.ItemImage{URL: address.String(), Caption: "问题附图"})
+			}
+		}
+	}
+	return append(question, answer...)
 }
 
 func (m *Answer) GetTitle() string {
@@ -208,6 +242,8 @@ func (c *Client) Collect() ([]job.Post, error) {
 
 		answers = append(answers, &Answer{
 			ID:          r.Get("applyId").String(),
+			Number:      r.Get("applyNum").String(),
+			Images:      answerImages(r),
 			Status:      r.Get(`answers.#(queTitle%"*状态*").values.0.value`).String(),
 			University:  r.Get(`answers.#(queTitle%"*University*").values.0.value`).String(),
 			Team:        r.Get(`answers.#(queTitle%"*Team*").values.0.value`).String(),
