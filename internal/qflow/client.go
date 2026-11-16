@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/wintbiit/rmtv/internal/job"
@@ -151,6 +151,23 @@ func (m *Answer) GetExtra() job.PostExtra {
 	return &strings.Builder{}
 }
 
+var qflowTimeZone = time.FixedZone("CST", 8*60*60)
+
+func parseQFlowTime(values ...gjson.Result) time.Time {
+	for _, value := range values {
+		raw := value.String()
+		if millis, err := strconv.ParseInt(raw, 10, 64); err == nil && millis > 0 {
+			return time.UnixMilli(millis).UTC()
+		}
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05", time.DateTime} {
+			if parsed, err := time.ParseInLocation(layout, raw, qflowTimeZone); err == nil {
+				return parsed
+			}
+		}
+	}
+	return time.Time{}
+}
+
 func (c *Client) Collect() ([]job.Post, error) {
 	resp, err := c.client.R().
 		SetBody(`{"filter":{"pageSize":50,"pageNum":1,"type":8,"sorts":[{"queId":3,"queType":4,"isAscend":false}],"queries":[],"queryKey":null}}`).
@@ -170,18 +187,26 @@ func (c *Client) Collect() ([]job.Post, error) {
 		return nil, fmt.Errorf("failed to collect qflow: %s", resp.String())
 	}
 
-	answers := make([]job.Post, len(result.Get("data.list").Array()))
-	for i, r := range result.Get("data.list").Array() {
-		createdAt, err := time.Parse(time.DateTime, r.Get(`answers.#(queTitle%"*申请时间*").values.0.value`).String())
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse created at: %s", r.String())
-		}
-		updatedAt, err := time.Parse(time.DateTime, r.Get(`answers.#(queTitle%"*更新时间*").values.0.value`).String())
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse updated at: %s", r.String())
+	records := result.Get("data.list").Array()
+	answers := make([]job.Post, 0, len(records))
+	for _, r := range records {
+		createdAt := parseQFlowTime(
+			r.Get("applyBaseInfo.applyTime"), r.Get("createTime"),
+			r.Get(`answers.#(queTitle%"*申请时间*").values.0.value`),
+		)
+		updatedAt := parseQFlowTime(
+			r.Get("lastUpdateTime"), r.Get("applyBaseInfo.lastUpdateTime"),
+			r.Get(`answers.#(queTitle%"*更新时间*").values.0.value`),
+		)
+		if createdAt.IsZero() || updatedAt.IsZero() {
+			logrus.WithFields(logrus.Fields{
+				"number": r.Get("applyNum").String(), "apply_id": r.Get("applyId").String(),
+				"invalid_created_at": createdAt.IsZero(), "invalid_updated_at": updatedAt.IsZero(),
+			}).Warn("Skipping QingFlow record with invalid timestamps")
+			continue
 		}
 
-		answers[i] = &Answer{
+		answers = append(answers, &Answer{
 			ID:          r.Get("applyId").String(),
 			Status:      r.Get(`answers.#(queTitle%"*状态*").values.0.value`).String(),
 			University:  r.Get(`answers.#(queTitle%"*University*").values.0.value`).String(),
@@ -193,8 +218,11 @@ func (c *Client) Collect() ([]job.Post, error) {
 			CreatedAt:   createdAt,
 			UpdatedAt:   updatedAt,
 			URL:         fmt.Sprintf("https://qingflow.com/appView/%s/shareView/%s?applyId=%s", c.appId, c.baseId, r.Get("applyId").String()),
-		}
+		})
 	}
 
+	if len(records) > 0 && len(answers) == 0 {
+		return nil, fmt.Errorf("all %d QingFlow records have invalid timestamps", len(records))
+	}
 	return answers, nil
 }
