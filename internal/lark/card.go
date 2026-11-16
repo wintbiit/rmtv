@@ -15,6 +15,7 @@ import (
 
 const maxCardBytes = 20000
 const maxCardComponents = 200
+const maxInlineBodyRunes = 48
 
 type element map[string]any
 
@@ -157,7 +158,8 @@ func renderEntry(entry cardEntry, full bool) element {
 	if !ok {
 		theme = cardTheme{label: entry.Source, tag: "blue"}
 	}
-	title := shorten(strings.Join(strings.Fields(entry.Title), " "), 64)
+	titleText := strings.Join(strings.Fields(entry.Title), " ")
+	title := shorten(titleText, 64)
 	if title == "" {
 		title = "查看原文"
 	}
@@ -189,9 +191,21 @@ func renderEntry(entry cardEntry, full bool) element {
 			{"tag": "column", "width": "88px", "vertical_align": "center", "elements": []element{imageNode(entry.pictures[0], true)}},
 		}}}
 	}
-	if full && (entry.Body != "" || len(entry.pictures) > 0 || title != entry.Title) {
+	entry.Body = strings.TrimSpace(entry.Body)
+	if entry.Body == "-" || entry.Body == "—" {
+		entry.Body = ""
+	}
+	shortBody := len([]rune(entry.Body)) <= maxInlineBodyRunes && !strings.ContainsAny(entry.Body, "\r\n")
+	detailImages := len(entry.pictures) > 1 || (len(entry.pictures) == 1 && entry.pictures[0].Caption != "")
+	if full && (title != titleText || !shortBody || detailImages) {
 		top = append(top, element{"tag": "collapsible_panel", "expanded": false, "vertical_spacing": "6px",
 			"header": element{"title": plain("查看全文")}, "elements": renderDetails(entry)})
+	} else if shortBody && entry.Body != "" {
+		body := markdownEscaper.Replace(entry.Body)
+		if entry.Source == "轻流" {
+			body = "**答复**　" + body
+		}
+		top = append(top, markdown(body))
 	}
 	section := element{"tag": "column_set", "columns": []element{
 		{"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "6px", "padding": "8px 10px 8px 10px", "elements": top},
@@ -206,9 +220,9 @@ func renderDetails(entry cardEntry) []element {
 	title := "**" + markdownEscaper.Replace(entry.Title) + "**"
 	body := markdownEscaper.Replace(entry.Body)
 	if entry.Source == "轻流" {
-		title = "**问题**\n\n" + markdownEscaper.Replace(entry.Title)
+		title = "**问题**<br>" + markdownEscaper.Replace(entry.Title)
 		if body != "" {
-			body = "**答复**\n\n" + body
+			body = "**答复**<br>" + body
 		}
 	}
 	var afterTitle, afterBody []cardImage

@@ -66,7 +66,7 @@ func TestQingFlowDetailOrderAndInlineChip(t *testing.T) {
 	if !strings.Contains(payload, `轻流\u003c/text_tag\u003e  [完整问题]`) {
 		t.Errorf("source chip and title must share an inline element: %s", payload)
 	}
-	want := []string{"**问题**", "问题附图", "**答复**", "答复附图"}
+	want := []string{`**问题**\u003cbr\u003e完整问题`, "问题附图", `**答复**\u003cbr\u003e完整答复`, "答复附图"}
 	position := 0
 	for _, segment := range want {
 		index := strings.Index(payload[position:], segment)
@@ -77,6 +77,38 @@ func TestQingFlowDetailOrderAndInlineChip(t *testing.T) {
 	}
 	if !strings.Contains(payload, "查看全文") || strings.Contains(payload, "张图") {
 		t.Fatal("incorrect panel label")
+	}
+}
+
+func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
+	for _, tt := range []struct {
+		name, body string
+		pictures   []cardImage
+		panel      bool
+	}{
+		{name: "video cover and short intro", body: "短简介", pictures: []cardImage{{Key: "cover"}}},
+		{name: "placeholder description", body: "-", pictures: []cardImage{{Key: "cover"}}},
+		{name: "long description", body: strings.Repeat("长", 70), panel: true},
+		{name: "description with paragraphs", body: "第一段\n第二段", panel: true},
+		{name: "diagram with short answer", body: "短答复", pictures: []cardImage{{Key: "diagram", Caption: "问题附图"}}, panel: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := cardEntry{Item: job.Item{Source: "Bilibili", Title: "标题", Body: tt.body}, pictures: tt.pictures}
+			data, err := json.Marshal(renderEntry(entry, true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := string(data)
+			if strings.Contains(payload, "collapsible_panel") != tt.panel {
+				t.Fatalf("expected panel=%v: %s", tt.panel, payload)
+			}
+			if tt.body == "-" && strings.Contains(payload, `"content":"-"`) {
+				t.Fatal("placeholder description should be omitted")
+			}
+			if tt.body == "短简介" && !strings.Contains(payload, tt.body) {
+				t.Fatal("short intro should be visible")
+			}
+		})
 	}
 }
 
