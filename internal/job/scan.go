@@ -92,13 +92,11 @@ func (j *TvJob) scan(ctx context.Context) error {
 		return int(b.GetPubDate().Unix() - a.GetPubDate().Unix())
 	})
 
-	if err := j.onNewMessage(ctx, results); err != nil {
-		return err
-	}
-
 	if err := tx.Commit(); err != nil {
-		return errors.Wrapf(err, "failed to commit transaction")
+		return errors.Wrap(err, "failed to commit transaction")
 	}
-
+	if err := j.onNewMessage(ctx, results); err != nil {
+		return errors.Wrap(err, "posts stored but sending cards failed")
+	}
 	return nil
 }

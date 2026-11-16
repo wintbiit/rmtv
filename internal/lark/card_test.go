@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestMixedCardsPreserveEveryEntry(t *testing.T) {
 	entries[0].pictures = []cardImage{{Key: "img_cover"}, {Key: "img_next"}}
 	entries[1].Number = "481"
 	entries[1].pictures = []cardImage{{Key: "img_diagram", Caption: "问题附图", AfterTitle: true}}
-	cards, err := packCards(entries, 0)
+	cards, err := packCards(slices.Values(entries), len(entries), 0)
 	if err != nil || len(cards) < 2 {
 		t.Fatalf("expected multiple cards, got %d: %v", len(cards), err)
 	}
@@ -61,7 +62,16 @@ func TestCardCapReportsUnshownEntries(t *testing.T) {
 		}
 	}
 	for _, limit := range []int{1, DefaultMaxCardsPerRound, 3} {
-		cards, err := packCards(entries, limit)
+		consumed := 0
+		counted := func(yield func(cardEntry) bool) {
+			for _, entry := range entries {
+				consumed++
+				if !yield(entry) {
+					return
+				}
+			}
+		}
+		cards, err := packCards(counted, len(entries), limit)
 		if err != nil || len(cards) != limit {
 			t.Fatalf("cap %d: got %d cards, error %v", limit, len(cards), err)
 		}
@@ -78,6 +88,9 @@ func TestCardCapReportsUnshownEntries(t *testing.T) {
 		}
 		if shown >= len(entries) || !strings.Contains(string(final), fmt.Sprintf("另有 %d 条未展示", len(entries)-shown)) {
 			t.Fatalf("cap %d: reported count does not match the %d shown entries", limit, shown)
+		}
+		if consumed != shown+1 {
+			t.Fatalf("cap %d: prepared %d entries for %d shown", limit, consumed, shown)
 		}
 	}
 }
@@ -144,7 +157,7 @@ func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
 
 func TestOversizedDetailsLeaveTheOriginalLink(t *testing.T) {
 	entry := cardEntry{Item: job.Item{Title: "原始问题", URL: "https://example.com/a", Body: strings.Repeat("正文", 20000)}}
-	cards, err := packCards([]cardEntry{entry}, 0)
+	cards, err := packCards(slices.Values([]cardEntry{entry}), 1, 0)
 	if err != nil || len(cards) != 1 {
 		t.Fatalf("got %d cards: %v", len(cards), err)
 	}

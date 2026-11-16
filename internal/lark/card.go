@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"net/url"
 	"slices"
 	"strings"
@@ -81,30 +82,37 @@ func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
 func renderCards(ctx context.Context, items []job.Item, maxCards int) ([]*ChatCard, error) {
 	items = slices.Clone(items)
 	slices.SortStableFunc(items, func(a, b job.Item) int { return b.PublishedAt.Compare(a.PublishedAt) })
-	entries := make([]cardEntry, 0, len(items))
-	keys := make(map[string]string)
-	for _, item := range items {
-		entry := cardEntry{Item: item}
-		for _, image := range item.Images {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			key, seen := keys[image.URL]
-			if !seen {
-				var err error
-				key, err = uploadCardImage(ctx, image.URL)
-				if err != nil {
-					logrus.WithField("item_id", item.ID).Warn("Could not attach RMTV image")
+	entries := func(yield func(cardEntry) bool) {
+		keys := make(map[string]string)
+		for _, item := range items {
+			entry := cardEntry{Item: item}
+			for _, image := range item.Images {
+				if ctx.Err() != nil {
+					return
 				}
-				keys[image.URL] = key
+				key, seen := keys[image.URL]
+				if !seen {
+					var err error
+					key, err = uploadCardImage(ctx, image.URL)
+					if err != nil {
+						logrus.WithField("item_id", item.ID).Warn("Could not attach RMTV image")
+					}
+					keys[image.URL] = key
+				}
+				if key != "" {
+					entry.pictures = append(entry.pictures, cardImage{Key: key, Caption: image.Caption, AfterTitle: image.AfterTitle})
+				}
 			}
-			if key != "" {
-				entry.pictures = append(entry.pictures, cardImage{Key: key, Caption: image.Caption, AfterTitle: image.AfterTitle})
+			if ctx.Err() != nil || !yield(entry) {
+				return
 			}
 		}
-		entries = append(entries, entry)
 	}
-	return packCards(entries, maxCards)
+	cards, err := packCards(entries, len(items), maxCards)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return cards, err
 }
 
 func plain(text string) element    { return element{"tag": "plain_text", "content": text} }
@@ -310,7 +318,7 @@ func fitsCard(card *ChatCard) bool {
 	return len(webhook) <= maxCardBytes && len(envelope) <= maxCardBytes
 }
 
-func packCards(entries []cardEntry, maxCards int) ([]*ChatCard, error) {
+func packCards(entries iter.Seq[cardEntry], total, maxCards int) ([]*ChatCard, error) {
 	type page struct {
 		entries []cardEntry
 		nodes   []element
@@ -318,7 +326,7 @@ func packCards(entries []cardEntry, maxCards int) ([]*ChatCard, error) {
 	var pages []page
 	var current page
 	const pageAllowance = " · 9999999999999999999/9999999999999999999 · 另有 9999999999999999999 条未展示"
-	for _, entry := range entries {
+	for entry := range entries {
 		section := renderEntry(entry, true)
 		proposed := page{append(slices.Clone(current.entries), entry), append(slices.Clone(current.nodes), section)}
 		if fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
@@ -344,7 +352,7 @@ func packCards(entries []cardEntry, maxCards int) ([]*ChatCard, error) {
 	if len(current.nodes) > 0 {
 		pages = append(pages, current)
 	}
-	unshown := len(entries)
+	unshown := total
 	for _, page := range pages {
 		unshown -= len(page.entries)
 	}
