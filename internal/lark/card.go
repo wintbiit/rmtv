@@ -53,7 +53,12 @@ var themes = map[string]cardTheme{
 }
 
 var cardLocation = time.FixedZone("CST", 8*60*60)
-var markdownEscaper = strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "*", "\\*", "_", "\\_", "`", "\\`", "<", "&lt;", ">", "&gt;")
+
+// Feishu's Markdown uses HTML entities for literal punctuation.
+var markdownEscaper = strings.NewReplacer(
+	"&", "&amp;", "\\", "&#92;", "[", "&#91;", "]", "&#93;", "*", "&#42;",
+	"_", "&#95;", "`", "&#96;", "~", "&#126;", "!", "&#33;", "<", "&lt;", ">", "&gt;",
+)
 var imageUploadClient *Client
 
 func BuildMessageCard(ctx context.Context, posts []job.Post) (*ChatCard, error) {

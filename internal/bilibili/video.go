@@ -147,7 +147,7 @@ func (s *SearchResult) GetExtra() job.PostExtra {
 var titleRegex = regexp.MustCompile(`<em[^>]*>(.*?)</em>`)
 
 func (s *SearchResult) postprocess() {
-	s.Title = titleRegex.ReplaceAllString(s.Title, `**$1**`)
+	s.Title = titleRegex.ReplaceAllString(s.Title, `$1`)
 }
 
 func (c *Client) SearchVideos(keyword string) ([]SearchResult, error) {

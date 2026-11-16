@@ -155,6 +155,12 @@ func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
 	}
 }
 
+func TestFeishuPunctuationUsesEntities(t *testing.T) {
+	if got := markdownEscaper.Replace(`**机甲大师** [复盘]`); got != "&#42;&#42;机甲大师&#42;&#42; &#91;复盘&#93;" {
+		t.Fatalf("wrong Feishu Markdown escaping: %q", got)
+	}
+}
+
 func TestOversizedDetailsLeaveTheOriginalLink(t *testing.T) {
 	entry := cardEntry{Item: job.Item{Title: "原始问题", URL: "https://example.com/a", Body: strings.Repeat("正文", 20000)}}
 	cards, err := packCards(slices.Values([]cardEntry{entry}), 1, 0)
