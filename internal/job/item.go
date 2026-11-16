@@ -11,6 +11,7 @@ type Item struct {
 
 type ItemImage struct {
 	URL, Caption string
+	AfterTitle   bool
 }
 
 func ItemFromPost(post Post) Item {

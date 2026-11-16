@@ -138,7 +138,7 @@ func answerImages(record gjson.Result) []job.ItemImage {
 			if strings.Contains(field.Get("queTitle").String(), "反馈") {
 				answer = append(answer, job.ItemImage{URL: address.String(), Caption: "答复附图"})
 			} else {
-				question = append(question, job.ItemImage{URL: address.String(), Caption: "问题附图"})
+				question = append(question, job.ItemImage{URL: address.String(), Caption: "问题附图", AfterTitle: true})
 			}
 		}
 	}

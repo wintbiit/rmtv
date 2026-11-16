@@ -1,12 +1,9 @@
 package lark
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -18,7 +15,6 @@ import (
 
 const maxCardBytes = 20000
 const maxCardComponents = 200
-const maxMessageImageBytes = 10 * 1000 * 1000
 
 type element map[string]any
 
@@ -36,6 +32,7 @@ type ChatContent struct {
 
 type cardImage struct {
 	Key, Caption string
+	AfterTitle   bool
 }
 
 type cardEntry struct {
@@ -55,7 +52,6 @@ var themes = map[string]cardTheme{
 
 var cardLocation = time.FixedZone("CST", 8*60*60)
 var markdownEscaper = strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "*", "\\*", "_", "\\_", "`", "\\`", "<", "&lt;", ">", "&gt;")
-var mediaClient = &http.Client{Timeout: 15 * time.Second}
 var imageUploadClient *Client
 
 func BuildMessageCard(ctx context.Context, posts []job.Post) (*ChatCard, error) {
@@ -98,49 +94,12 @@ func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
 				keys[image.URL] = key
 			}
 			if key != "" {
-				entry.pictures = append(entry.pictures, cardImage{key, image.Caption})
+				entry.pictures = append(entry.pictures, cardImage{Key: key, Caption: image.Caption, AfterTitle: image.AfterTitle})
 			}
 		}
 		entries = append(entries, entry)
 	}
 	return packCards(entries)
-}
-
-func uploadCardImage(ctx context.Context, raw string) (string, error) {
-	if imageUploadClient == nil {
-		return "", fmt.Errorf("image uploader unavailable")
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return "", fmt.Errorf("invalid image address")
-	}
-	if u.Scheme == "http" && strings.HasSuffix(u.Hostname(), ".hdslb.com") {
-		u.Scheme = "https"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", err
-	}
-	if strings.HasSuffix(u.Hostname(), ".hdslb.com") {
-		req.Header.Set("Referer", "https://www.bilibili.com/")
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	resp, err := mediaClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("image download returned HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMessageImageBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if len(data) > maxMessageImageBytes || !strings.HasPrefix(http.DetectContentType(data), "image/") {
-		return "", fmt.Errorf("unsupported message image")
-	}
-	return imageUploadClient.uploadImage(ctx, bytes.NewReader(data))
 }
 
 func plain(text string) element    { return element{"tag": "plain_text", "content": text} }
@@ -216,13 +175,14 @@ func renderEntry(entry cardEntry, full bool) element {
 	if !entry.PublishedAt.IsZero() {
 		meta = append(meta, entry.PublishedAt.In(cardLocation).Format("01-02 15:04"))
 	}
-	label := fmt.Sprintf("<text_tag color='%s'>%s</text_tag>", theme.tag, markdownEscaper.Replace(theme.label))
+	chip := fmt.Sprintf("<text_tag color='%s'>%s</text_tag>", theme.tag, markdownEscaper.Replace(theme.label))
+	top := []element{{"tag": "div", "text": element{
+		"tag": "lark_md", "content": chip + "  " + text, "lines": 2, "text_size": "rmtv_title",
+	}}}
 	if len(meta) > 0 {
-		label += "  <font color='grey'>" + markdownEscaper.Replace(strings.Join(meta, " · ")) + "</font>"
+		top = append(top, element{"tag": "markdown", "text_size": "rmtv_meta",
+			"content": "<font color='grey'>" + markdownEscaper.Replace(strings.Join(meta, " · ")) + "</font>"})
 	}
-	top := []element{{"tag": "div", "text": element{"tag": "lark_md", "content": text, "lines": 2, "text_size": "rmtv_title"}}, markdown(label)}
-
-	top[1]["text_size"] = "rmtv_meta"
 	if len(entry.pictures) > 0 {
 		top = []element{{"tag": "column_set", "horizontal_spacing": "8px", "columns": []element{
 			{"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "4px", "elements": top},
@@ -230,17 +190,8 @@ func renderEntry(entry cardEntry, full bool) element {
 		}}}
 	}
 	if full && (entry.Body != "" || len(entry.pictures) > 0 || title != entry.Title) {
-		details := []element{markdown("**" + markdownEscaper.Replace(entry.Title) + "**")}
-		if entry.Body != "" {
-			details = append(details, markdown(markdownEscaper.Replace(entry.Body)))
-		}
-		details = append(details, gallery(entry.pictures)...)
-		caption := "查看全文"
-		if len(entry.pictures) > 0 {
-			caption += fmt.Sprintf(" · %d 张图", len(entry.pictures))
-		}
 		top = append(top, element{"tag": "collapsible_panel", "expanded": false, "vertical_spacing": "6px",
-			"header": element{"title": plain(caption)}, "elements": details})
+			"header": element{"title": plain("查看全文")}, "elements": renderDetails(entry)})
 	}
 	section := element{"tag": "column_set", "columns": []element{
 		{"tag": "column", "width": "weighted", "weight": 1, "vertical_spacing": "6px", "padding": "8px 10px 8px 10px", "elements": top},
@@ -249,6 +200,30 @@ func renderEntry(entry cardEntry, full bool) element {
 		section["background_style"] = theme.tint
 	}
 	return section
+}
+
+func renderDetails(entry cardEntry) []element {
+	title := "**" + markdownEscaper.Replace(entry.Title) + "**"
+	body := markdownEscaper.Replace(entry.Body)
+	if entry.Source == "轻流" {
+		title = "**问题**\n\n" + markdownEscaper.Replace(entry.Title)
+		if body != "" {
+			body = "**答复**\n\n" + body
+		}
+	}
+	var afterTitle, afterBody []cardImage
+	for _, picture := range entry.pictures {
+		if picture.AfterTitle {
+			afterTitle = append(afterTitle, picture)
+		} else {
+			afterBody = append(afterBody, picture)
+		}
+	}
+	nodes := append([]element{markdown(title)}, gallery(afterTitle)...)
+	if body != "" {
+		nodes = append(nodes, markdown(body))
+	}
+	return append(nodes, gallery(afterBody)...)
 }
 
 func renderPage(entries []cardEntry, nodes []element, suffix string) *ChatCard {
@@ -327,16 +302,20 @@ func packCards(entries []cardEntry) ([]*ChatCard, error) {
 	const pageAllowance = " · 999999/999999"
 	for _, entry := range entries {
 		section := renderEntry(entry, true)
-		if !fitsCard(renderPage([]cardEntry{entry}, []element{section}, pageAllowance)) {
-			section = renderEntry(entry, false)
-		}
 		proposed := page{append(slices.Clone(current.entries), entry), append(slices.Clone(current.nodes), section)}
-		if len(current.nodes) > 0 && !fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
-			pages = append(pages, current)
-			proposed = page{[]cardEntry{entry}, []element{section}}
+		if fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
+			current = proposed
+			continue
 		}
+		if len(current.nodes) > 0 {
+			pages = append(pages, current)
+		}
+		proposed = page{[]cardEntry{entry}, []element{section}}
 		if !fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
-			return nil, fmt.Errorf("RMTV item %s exceeds card limits", entry.ID)
+			proposed.nodes[0] = renderEntry(entry, false)
+			if !fitsCard(renderPage(proposed.entries, proposed.nodes, pageAllowance)) {
+				return nil, fmt.Errorf("RMTV item %s exceeds card limits", entry.ID)
+			}
 		}
 		current = proposed
 	}
