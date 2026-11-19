@@ -96,7 +96,8 @@ func TestCardCapReportsUnshownEntries(t *testing.T) {
 }
 
 func TestQingFlowDetailOrderAndInlineChip(t *testing.T) {
-	entry := cardEntry{Item: job.Item{Source: "轻流", Title: "完整问题", Body: "完整答复", URL: "https://qingflow.com"},
+	entry := cardEntry{Item: job.Item{Source: "轻流", Title: "完整问题", Body: "完整答复", URL: "https://qingflow.com",
+		Author: "示例大学-示例战队", Number: "481"},
 		pictures: []cardImage{
 			{Key: "question_key", Caption: "问题附图", AfterTitle: true},
 			{Key: "answer_key", Caption: "答复附图"},
@@ -108,6 +109,9 @@ func TestQingFlowDetailOrderAndInlineChip(t *testing.T) {
 	payload := string(body)
 	if !strings.Contains(payload, `轻流\u003c/text_tag\u003e  [完整问题]`) {
 		t.Errorf("source chip and title must share an inline element: %s", payload)
+	}
+	if !strings.Contains(payload, "示例大学-示例战队 · #481") {
+		t.Errorf("QingFlow author and ticket number must both be visible: %s", payload)
 	}
 	want := []string{`**问题**\u003cbr\u003e完整问题`, "问题附图", `**答复**\u003cbr\u003e完整答复`, "答复附图"}
 	position := 0

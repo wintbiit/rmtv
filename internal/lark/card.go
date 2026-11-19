@@ -73,11 +73,15 @@ func BuildMessageCard(ctx context.Context, posts []job.Post) (*ChatCard, error) 
 }
 
 func buildMessageCards(ctx context.Context, posts []job.Post, maxCards int) ([]*ChatCard, error) {
+	return renderCards(ctx, cardItems(posts), maxCards)
+}
+
+func cardItems(posts []job.Post) []job.Item {
 	items := make([]job.Item, 0, len(posts))
 	for _, post := range posts {
 		items = append(items, job.ItemFromPost(post))
 	}
-	return renderCards(ctx, items, maxCards)
+	return items
 }
 
 func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
@@ -85,10 +89,18 @@ func RenderCards(ctx context.Context, items []job.Item) ([]*ChatCard, error) {
 }
 
 func renderCards(ctx context.Context, items []job.Item, maxCards int) ([]*ChatCard, error) {
+	cards, err := packCards(cardEntries(ctx, items), len(items), maxCards)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return cards, err
+}
+
+func cardEntries(ctx context.Context, items []job.Item) iter.Seq[cardEntry] {
 	items = slices.Clone(items)
 	slices.SortStableFunc(items, func(a, b job.Item) int { return b.PublishedAt.Compare(a.PublishedAt) })
-	entries := func(yield func(cardEntry) bool) {
-		keys := make(map[string]string)
+	keys := make(map[string]string)
+	return func(yield func(cardEntry) bool) {
 		for _, item := range items {
 			entry := cardEntry{Item: item}
 			for _, image := range item.Images {
@@ -113,11 +125,6 @@ func renderCards(ctx context.Context, items []job.Item, maxCards int) ([]*ChatCa
 			}
 		}
 	}
-	cards, err := packCards(entries, len(items), maxCards)
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	return cards, err
 }
 
 func plain(text string) element    { return element{"tag": "plain_text", "content": text} }
@@ -186,10 +193,15 @@ func renderEntry(entry cardEntry, full bool) element {
 		text = "[" + text + "](" + link + ")"
 	}
 	meta := []string{}
+	if entry.Author != "" {
+		author := entry.Author
+		if entry.Source != "轻流" {
+			author = shorten(author, 24)
+		}
+		meta = append(meta, author)
+	}
 	if entry.Number != "" {
 		meta = append(meta, "#"+entry.Number)
-	} else if entry.Author != "" {
-		meta = append(meta, shorten(entry.Author, 24))
 	}
 	if !entry.PublishedAt.IsZero() {
 		meta = append(meta, entry.PublishedAt.In(cardLocation).Format("01-02 15:04"))

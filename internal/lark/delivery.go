@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
+	"sync"
 
 	"github.com/wintbiit/rmtv/internal/job"
 )
@@ -29,31 +31,65 @@ func (d Delivery) PushMessage(ctx context.Context, posts []job.Post) error {
 	if limit <= 0 {
 		limit = DefaultMaxCardsPerRound
 	}
-	cards, err := buildMessageCards(ctx, posts, limit)
-	if err != nil || len(cards) == 0 {
-		return err
+	items := cardItems(posts)
+	entries := cardEntries(ctx, items)
+	var appErr, webhookErr error
+	if d.App != nil {
+		pages, err := prepareCards(ctx, entries, len(items), 0, false)
+		if err == nil && len(pages) > 0 {
+			err = d.App.pushCards(ctx, pages)
+		}
+		appErr = err
+	}
+	if d.Webhook != nil {
+		pages, err := prepareCards(ctx, entries, len(items), limit, true)
+		if err == nil && len(pages) > 0 {
+			err = d.Webhook.pushCards(ctx, pages)
+		}
+		webhookErr = err
+	}
+	return errors.Join(appErr, webhookErr)
+}
+
+func prepareCards(ctx context.Context, entries iter.Seq[cardEntry], total, limit int, webhook bool) ([]preparedCard, error) {
+	cards, err := packCards(entries, total, limit)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, err
 	}
 	prepared := make([]preparedCard, 0, len(cards))
 	for _, card := range cards {
-		content, err := json.Marshal(card)
-		if err != nil {
-			return fmt.Errorf("encode Feishu card: %w", err)
-		}
-		page := preparedCard{content: string(content), identity: card.identity}
-		if d.Webhook != nil {
+		page := preparedCard{identity: card.identity}
+		if webhook {
 			page.webhook, err = json.Marshal(ChatContent{MsgType: "interactive", Card: card})
-			if err != nil {
-				return fmt.Errorf("encode Feishu webhook card: %w", err)
-			}
+		} else {
+			var content []byte
+			content, err = json.Marshal(card)
+			page.content = string(content)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("encode Feishu card: %w", err)
 		}
 		prepared = append(prepared, page)
 	}
-	var appErr, webhookErr error
-	if d.App != nil {
-		appErr = d.App.pushCards(ctx, prepared)
+	return prepared, nil
+}
+
+func sendToDestinations(ctx context.Context, count int, send func(int) error) error {
+	failures := make([]error, count)
+	var pending sync.WaitGroup
+	for i := range count {
+		if ctx.Err() != nil {
+			break
+		}
+		pending.Add(1)
+		go func() {
+			defer pending.Done()
+			failures[i] = send(i)
+		}()
 	}
-	if d.Webhook != nil {
-		webhookErr = d.Webhook.pushCards(ctx, prepared)
-	}
-	return errors.Join(appErr, webhookErr)
+	pending.Wait()
+	return errors.Join(append(failures, ctx.Err())...)
 }

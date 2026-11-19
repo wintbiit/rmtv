@@ -8,9 +8,11 @@ import (
 	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/ratelimit"
 )
 
 type Config struct {
@@ -62,42 +64,94 @@ func (c *Client) PushMessageToChat(ctx context.Context, chatId string, content s
 }
 
 func (c *Client) pushCards(ctx context.Context, cards []preparedCard) error {
-	var failures []error
-	err := c.ForeachChat(ctx, func(chat *larkim.ListChat) {
-		if chat.ChatId == nil {
-			return
-		}
-		for i, card := range cards {
-			if err := c.sendCard(ctx, *chat.ChatId, card); err != nil {
-				failures = append(failures, fmt.Errorf("chat %s card %d/%d: %w", *chat.ChatId, i+1, len(cards), err))
-				break
-			}
-			logrus.WithFields(logrus.Fields{"chat_id": *chat.ChatId, "page": i + 1, "pages": len(cards)}).Info("Sent RMTV card")
+	var chatIDs []string
+	seen := make(map[string]bool)
+	listErr := c.ForeachChat(ctx, func(chat *larkim.ListChat) {
+		if chat.ChatId != nil && *chat.ChatId != "" && !seen[*chat.ChatId] {
+			seen[*chat.ChatId] = true
+			chatIDs = append(chatIDs, *chat.ChatId)
 		}
 	})
-	return stderrors.Join(append(failures, err)...)
+	// Use one conservative request budget for creates and replies across all groups.
+	appPace := ratelimit.New(1000, ratelimit.Per(time.Minute), ratelimit.WithoutSlack)
+	sendErr := sendToDestinations(ctx, len(chatIDs), func(i int) error {
+		chatID := chatIDs[i]
+		// Feishu shares 5 QPS among all bots in a group. This only paces our calls.
+		groupPace := ratelimit.New(5, ratelimit.WithoutSlack)
+		var rootID string
+		for page, card := range cards {
+			err := retryCard(ctx, func() (bool, error) {
+				groupPace.Take()
+				appPace.Take()
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
+				if page == 0 {
+					var err error
+					var retry bool
+					rootID, retry, err = c.sendRootCard(ctx, chatID, card, len(cards) > 1)
+					return retry, err
+				}
+				return c.replyCard(ctx, rootID, card)
+			})
+			if err != nil {
+				return fmt.Errorf("chat %s card %d/%d: %w", chatID, page+1, len(cards), err)
+			}
+			logrus.WithFields(logrus.Fields{"chat_id": chatID, "page": page + 1, "pages": len(cards)}).Info("Sent RMTV card")
+		}
+		return nil
+	})
+	return stderrors.Join(listErr, sendErr)
 }
 
-func (c *Client) sendCard(ctx context.Context, chatID string, card preparedCard) error {
-	digest := sha256.Sum256([]byte(chatID + "\x00" + card.identity))
+func cardUUID(destination string, card preparedCard) string {
+	digest := sha256.Sum256([]byte(destination + "\x00" + card.identity))
+	return fmt.Sprintf("%x", digest[:16])
+}
+
+func (c *Client) sendRootCard(ctx context.Context, chatID string, card preparedCard, expectReplies bool) (string, bool, error) {
 	request := larkim.NewCreateMessageReqBuilder().ReceiveIdType(larkim.ReceiveIdTypeChatId).
 		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).
 			MsgType(larkim.MsgTypeInteractive).Content(card.content).
-			Uuid(fmt.Sprintf("%x", digest[:16])).Build()).Build()
-	return retryCard(ctx, func() (bool, error) {
-		result, err := c.client.Im.V1.Message.Create(ctx, request)
-		if err != nil {
-			return true, err
-		}
-		if result.Success() {
-			return false, nil
-		}
-		status := 0
-		if result.ApiResp != nil {
-			status = result.StatusCode
-		}
-		return status == 429 || status >= 500 || result.Code == 99991400, fmt.Errorf("Feishu message API code %d: %s", result.Code, result.Msg)
-	})
+			Uuid(cardUUID(chatID, card)).Build()).Build()
+	result, err := c.client.Im.V1.Message.Create(ctx, request)
+	if err != nil {
+		return "", true, err
+	}
+	if !result.Success() {
+		retry, err := cardSendError(result.ApiResp, result.CodeError)
+		return "", retry, err
+	}
+	if !expectReplies {
+		return "", false, nil
+	}
+	if result.Data == nil || result.Data.MessageId == nil || *result.Data.MessageId == "" {
+		return "", false, fmt.Errorf("Feishu did not return a message ID for thread replies")
+	}
+	return *result.Data.MessageId, false, nil
+}
+
+func (c *Client) replyCard(ctx context.Context, rootID string, card preparedCard) (bool, error) {
+	request := larkim.NewReplyMessageReqBuilder().MessageId(rootID).
+		Body(larkim.NewReplyMessageReqBodyBuilder().MsgType(larkim.MsgTypeInteractive).
+			Content(card.content).ReplyInThread(true).Uuid(cardUUID(rootID, card)).Build()).Build()
+	result, err := c.client.Im.V1.Message.Reply(ctx, request)
+	if err != nil {
+		return true, err
+	}
+	if result.Success() {
+		return false, nil
+	}
+	return cardSendError(result.ApiResp, result.CodeError)
+}
+
+func cardSendError(resp *larkcore.ApiResp, code larkcore.CodeError) (bool, error) {
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	retry := status == 429 || status >= 500 || code.Code == 99991400 || code.Code == 230020
+	return retry, fmt.Errorf("Feishu message API code %d: %s", code.Code, code.Msg)
 }
 
 // Retry one card so success for another page does not cause it to be resent here.

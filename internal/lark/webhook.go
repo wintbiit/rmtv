@@ -28,12 +28,16 @@ func NewWebhookClient(webhooks []string) *WebhookClient {
 }
 
 func (c *WebhookClient) pushCards(ctx context.Context, cards []preparedCard) error {
-	var failures []error
-	for i, webhook := range c.webhooks {
-		webhook = strings.TrimSpace(webhook)
-		if webhook == "" {
-			continue
+	var webhooks []string
+	seen := make(map[string]bool)
+	for _, address := range c.webhooks {
+		address = strings.TrimSpace(address)
+		if address != "" && !seen[address] {
+			seen[address] = true
+			webhooks = append(webhooks, address)
 		}
+	}
+	return sendToDestinations(ctx, len(webhooks), func(i int) error {
 		// Feishu custom bots allow 100 requests/minute and five/second.
 		pace := ratelimit.New(100, ratelimit.Per(time.Minute), ratelimit.WithoutSlack)
 		for page, card := range cards {
@@ -42,16 +46,15 @@ func (c *WebhookClient) pushCards(ctx context.Context, cards []preparedCard) err
 				if err := ctx.Err(); err != nil {
 					return false, err
 				}
-				return c.sendCard(ctx, webhook, card.webhook)
+				return c.sendCard(ctx, webhooks[i], card.webhook)
 			})
 			if err != nil {
-				failures = append(failures, fmt.Errorf("webhook %d card %d/%d: %w", i+1, page+1, len(cards), err))
-				break
+				return fmt.Errorf("webhook %d card %d/%d: %w", i+1, page+1, len(cards), err)
 			}
 			logrus.WithFields(logrus.Fields{"webhook_index": i + 1, "page": page + 1, "pages": len(cards)}).Info("Sent RMTV card")
 		}
-	}
-	return errors.Join(failures...)
+		return nil
+	})
 }
 
 func (c *WebhookClient) sendCard(ctx context.Context, webhook string, body []byte) (bool, error) {

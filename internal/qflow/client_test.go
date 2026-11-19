@@ -28,6 +28,8 @@ func TestCollectMixedTimestampFields(t *testing.T) {
 				{"applyId":802771327,"applyNum":481,"createTime":null,"lastUpdateTime":1794484265000,
 				 "applyBaseInfo":{"applyTime":"2026-11-12T19:51:05","lastUpdateTime":"2026-11-12T19:51:05"},
 				 "answers":[
+					{"queTitle":"学校名 University","values":[{"value":" 示例大学 "}]},
+					{"queTitle":"战队名 Team","values":[{"value":" 示例战队 "}]},
 					{"queType":13,"queTitle":"反馈附件","values":[{"dataValue":"answer.png","value":"https://qingflow.com/img/answer.png"}]},
 					{"queType":13,"queTitle":"问题附件","values":[{"dataValue":"question.png","value":"https://qingflow.com/img/question.png"},{"dataValue":"notes.pdf","value":"https://qingflow.com/img/notes.pdf"}]}
 				 ]}
@@ -47,6 +49,9 @@ func TestCollectMixedTimestampFields(t *testing.T) {
 		}
 	}
 	answer := got[1].(*Answer)
+	if author := answer.GetAuthor(); author != "示例大学-示例战队" {
+		t.Errorf("QingFlow author = %q", author)
+	}
 	if answer.CardNumber() != "481" || len(answer.Images) != 2 ||
 		answer.Images[0].Caption != "问题附图" || answer.Images[1].Caption != "答复附图" {
 		t.Fatalf("incorrect QingFlow card details: %+v", answer.Images)

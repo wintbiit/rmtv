@@ -170,7 +170,14 @@ func (m *Answer) GetPubDate() time.Time {
 }
 
 func (m *Answer) GetAuthor() string {
-	return fmt.Sprintf("%s-%s", m.University, m.Team)
+	school, team := strings.TrimSpace(m.University), strings.TrimSpace(m.Team)
+	if school == "" {
+		return team
+	}
+	if team == "" {
+		return school
+	}
+	return school + "-" + team
 }
 
 func (m *Answer) GetAuthorUrl() string {
