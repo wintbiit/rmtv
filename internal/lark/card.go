@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
 	"github.com/wintbiit/rmtv/internal/job"
@@ -17,6 +18,8 @@ import (
 const maxCardBytes = 20000
 const maxCardComponents = 200
 const maxInlineBodyRunes = 48
+const maxInlineTextRunes = 64
+const maxInlineTextWithImageRunes = 48
 
 type element map[string]any
 
@@ -183,7 +186,22 @@ func renderEntry(entry cardEntry, full bool) element {
 		theme = cardTheme{label: entry.Source, tag: "blue"}
 	}
 	titleText := strings.Join(strings.Fields(entry.Title), " ")
-	title := shorten(titleText, 64)
+	entry.Body = strings.TrimSpace(entry.Body)
+	if entry.Body == "-" || entry.Body == "—" {
+		entry.Body = ""
+	}
+	inlineLimit := maxInlineTextRunes
+	if len(entry.pictures) > 0 {
+		inlineLimit = maxInlineTextWithImageRunes
+	}
+	bodyRunes := utf8.RuneCountInString(entry.Body)
+	multilineBody := strings.ContainsAny(entry.Body, "\r\n")
+	detailImages := len(entry.pictures) > 1 || (len(entry.pictures) == 1 && entry.pictures[0].Caption != "")
+	needsDetails := utf8.RuneCountInString(titleText)+bodyRunes > inlineLimit || multilineBody || detailImages
+	title := titleText
+	if needsDetails {
+		title = shorten(titleText, inlineLimit)
+	}
 	if title == "" {
 		title = "查看原文"
 	}
@@ -207,9 +225,11 @@ func renderEntry(entry cardEntry, full bool) element {
 		meta = append(meta, entry.PublishedAt.In(cardLocation).Format("01-02 15:04"))
 	}
 	chip := fmt.Sprintf("<text_tag color='%s'>%s</text_tag>", theme.tag, markdownEscaper.Replace(theme.label))
-	top := []element{{"tag": "div", "text": element{
-		"tag": "lark_md", "content": chip + "  " + text, "lines": 2, "text_size": "rmtv_title",
-	}}}
+	heading := element{"tag": "lark_md", "content": chip + "  " + text, "text_size": "rmtv_title"}
+	if needsDetails {
+		heading["lines"] = 2
+	}
+	top := []element{{"tag": "div", "text": heading}}
 	if len(meta) > 0 {
 		top = append(top, element{"tag": "markdown", "text_size": "rmtv_meta",
 			"content": "<font color='grey'>" + markdownEscaper.Replace(strings.Join(meta, " · ")) + "</font>"})
@@ -220,16 +240,10 @@ func renderEntry(entry cardEntry, full bool) element {
 			{"tag": "column", "width": "88px", "vertical_align": "center", "elements": []element{imageNode(entry.pictures[0], true)}},
 		}}}
 	}
-	entry.Body = strings.TrimSpace(entry.Body)
-	if entry.Body == "-" || entry.Body == "—" {
-		entry.Body = ""
-	}
-	shortBody := len([]rune(entry.Body)) <= maxInlineBodyRunes && !strings.ContainsAny(entry.Body, "\r\n")
-	detailImages := len(entry.pictures) > 1 || (len(entry.pictures) == 1 && entry.pictures[0].Caption != "")
-	if full && (title != titleText || !shortBody || detailImages) {
+	if full && needsDetails {
 		top = append(top, element{"tag": "collapsible_panel", "expanded": false, "vertical_spacing": "6px",
 			"header": element{"title": plain("查看全文")}, "elements": renderDetails(entry)})
-	} else if shortBody && entry.Body != "" {
+	} else if entry.Body != "" && (!needsDetails || (bodyRunes <= maxInlineBodyRunes && !multilineBody)) {
 		body := markdownEscaper.Replace(entry.Body)
 		if entry.Source == "轻流" {
 			body = "**答复**　" + body

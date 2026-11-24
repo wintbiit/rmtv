@@ -127,20 +127,29 @@ func TestQingFlowDetailOrderAndInlineChip(t *testing.T) {
 	}
 }
 
-func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
+func TestCardDetailsUseTitleAndBodyLength(t *testing.T) {
 	for _, tt := range []struct {
-		name, body string
-		pictures   []cardImage
-		panel      bool
+		name, title, body string
+		pictures          []cardImage
+		panel             bool
 	}{
 		{name: "video cover and short intro", body: "短简介", pictures: []cardImage{{Key: "cover"}}},
 		{name: "placeholder description", body: "-", pictures: []cardImage{{Key: "cover"}}},
+		{name: "long question and short answer", title: strings.Repeat("问", 70), body: "短答复", panel: true},
+		{name: "long title without body", title: strings.Repeat("问", 65), panel: true},
+		{name: "combined length at limit", title: strings.Repeat("问", 44), body: strings.Repeat("答", 20)},
+		{name: "combined length over limit", title: strings.Repeat("问", 44), body: strings.Repeat("答", 21), panel: true},
+		{name: "cover reduces available width", title: strings.Repeat("问", 44), body: "简短的回答", pictures: []cardImage{{Key: "cover"}}, panel: true},
 		{name: "long description", body: strings.Repeat("长", 70), panel: true},
 		{name: "description with paragraphs", body: "第一段\n第二段", panel: true},
 		{name: "diagram with short answer", body: "短答复", pictures: []cardImage{{Key: "diagram", Caption: "问题附图"}}, panel: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			entry := cardEntry{Item: job.Item{Source: "Bilibili", Title: "标题", Body: tt.body}, pictures: tt.pictures}
+			title := tt.title
+			if title == "" {
+				title = "标题"
+			}
+			entry := cardEntry{Item: job.Item{Source: "轻流", Title: title, Body: tt.body}, pictures: tt.pictures}
 			data, err := json.Marshal(renderEntry(entry, true))
 			if err != nil {
 				t.Fatal(err)
@@ -148,6 +157,12 @@ func TestShortBodyDoesNotRequireAPanel(t *testing.T) {
 			payload := string(data)
 			if strings.Contains(payload, "collapsible_panel") != tt.panel {
 				t.Fatalf("expected panel=%v: %s", tt.panel, payload)
+			}
+			if strings.Contains(payload, `"lines":2`) != tt.panel {
+				t.Fatalf("only titles with details should be clamped: %s", payload)
+			}
+			if tt.panel && !strings.Contains(payload, `**问题**\u003cbr\u003e`+title) {
+				t.Fatalf("panel must preserve the full title: %s", payload)
 			}
 			if tt.body == "-" && strings.Contains(payload, `"content":"-"`) {
 				t.Fatal("placeholder description should be omitted")
